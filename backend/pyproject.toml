@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 voice = ["pipecat-ai[webrtc,deepgram,cartesia,openai,silero,twilio]"]
 paypal = ["paypal-agent-toolkit"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "aiosqlite>=0.20", "ruff>=0.5"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
