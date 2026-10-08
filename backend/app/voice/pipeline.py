@@ -23,6 +23,9 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
+from pipecat.turns.user_mute import FunctionCallUserMuteStrategy, MuteUntilFirstBotCompleteUserMuteStrategy
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
@@ -34,6 +37,7 @@ from app.voice.tools import TOOL_SPECS, ToolBox, VoiceDeps
 
 log = logging.getLogger(__name__)
 
+INTERRUPT_MIN_WORDS = 2
 OPENING = "The customer has just answered the call. Begin with your opening line."
 
 
@@ -99,7 +103,14 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
                   {"role": "user", "content": OPENING}],
         tools=tools_schema(session.tools))
     agg = LLMContextAggregatorPair(context, user_params=LLMUserAggregatorParams(
-        vad_analyzer=SileroVADAnalyzer(), user_idle_timeout=cfg.silence_timeout_seconds))
+        vad_analyzer=SileroVADAnalyzer(), user_idle_timeout=cfg.silence_timeout_seconds,
+        # Real-call lessons: speaker echo and noise were chopping Maya's replies to one word.
+        # 1) the opening line can't be interrupted, 2) nor can she be mid tool call, and
+        # 3) a single stray word doesn't count as an interruption while she is talking.
+        user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy(),
+                              FunctionCallUserMuteStrategy()],
+        user_turn_strategies=UserTurnStrategies(
+            start=[MinWordsUserTurnStartStrategy(min_words=INTERRUPT_MIN_WORDS)])))
 
     gate_push_task: dict = {}
 

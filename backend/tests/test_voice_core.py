@@ -278,3 +278,15 @@ async def test_a_dead_service_is_needs_human_not_no_answer_unless_they_paid():
     assert (t.label, t.overridden_by) == ("needs_human", "service_error")
     t = await tag_outcome(family_paid=True, **kw)            # payment still wins
     assert (t.label, t.overridden_by) == ("paid", "family_paid")
+
+
+async def test_classifier_cannot_call_an_answered_call_no_answer():
+    """Regression from real calls 1 and 4: the customer spoke, the bot got cut off, the LLM said no_answer."""
+    tr = [{"role": "assistant", "text": "Hi"}, {"role": "user", "text": "Hello?"}]
+    t = await tag_outcome(transcript=tr, hint=None, family_paid=False, no_answer=False,
+                          transfer_requested=False, classify=await classify("no_answer", 0.95))
+    assert (t.label, t.overridden_by) == ("needs_human", "answered_call")
+    # a genuinely silent line is still no_answer
+    t = await tag_outcome(transcript=[{"role": "assistant", "text": "Hi"}], hint=None, family_paid=False,
+                          no_answer=False, transfer_requested=False, classify=await classify("no_answer", 0.95))
+    assert t.label == "no_answer"

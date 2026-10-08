@@ -41,6 +41,9 @@ async def tag_outcome(*, transcript: list[dict], hint: str | None, family_paid: 
         t.label, t.overridden_by = "no_answer", "no_answer"
     elif transfer_requested:
         t.label, t.overridden_by = "needs_human", "transfer"
+    elif t.label == "no_answer" and any(m.get("role") == "user" for m in transcript):
+        # the customer spoke, so nobody "didn't answer": the call itself went wrong
+        t.label, t.overridden_by = "needs_human", "answered_call"
     elif t.confidence < MIN_CONFIDENCE:
         t.label, t.overridden_by = "needs_human", "low_confidence"
     return t
