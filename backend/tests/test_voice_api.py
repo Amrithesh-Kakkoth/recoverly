@@ -138,3 +138,29 @@ async def test_classifier_uses_json_mode_on_non_openai_hosts_and_strict_schema_o
         assert (await openai_classifier("k", "m", base, client=c)(tr, None))["label"] == "paid"
     assert seen == [("https://api.groq.com/openai/v1/chat/completions", "json_object"),
                     ("https://api.openai.com/v1/chat/completions", "json_schema")]
+
+
+def test_record_turn_builds_the_transcript_and_skips_empty_turns():
+    from app.voice.pipeline import record_turn
+    s = session()
+    record_turn(s, "assistant", "  Hi, I'm Maya, an AI assistant.  ")
+    record_turn(s, "user", "send me the link")
+    record_turn(s, "assistant", "", False)            # LLM returned zero tokens
+    record_turn(s, "user", None)
+    record_turn(s, "assistant", "Sure, I've sent it", interrupted=True)
+    assert s.transcript == [{"role": "assistant", "text": "Hi, I'm Maya, an AI assistant."},
+                            {"role": "user", "text": "send me the link"},
+                            {"role": "assistant", "text": "Sure, I've sent it", "interrupted": True}]
+
+
+async def test_a_call_that_used_tools_is_never_tagged_no_answer(bus):
+    """Regression from the first real call: empty transcript + tool calls was tagged no_answer."""
+    from tests.test_voice_manager import Rig
+    r = Rig(bus)
+    rid = await r.seed()
+    call_id = await r.mgr.start_call(str(rid), r.STEP)
+    s = r.live.get(call_id)
+    s.hint = "promised_to_pay"
+    s.tool_calls.append({"tool": "send_payment_link", "args": {}, "result": {"ok": True}})
+    await r.mgr.finish(s)
+    assert r.completed[0].payload["outcome"] != "no_answer"

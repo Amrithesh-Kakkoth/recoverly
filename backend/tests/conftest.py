@@ -1,3 +1,11 @@
+import os
+
+# Tests must never read (or spend) the developer's real .env keys. Set before any app import.
+os.environ["RECOVERLY_NO_ENV"] = "1"
+for _k in ("DATABASE_URL", "TIME_SCALE", "ABANDON_AFTER_SECONDS", "OPENAI_API_KEY", "LLM_API_KEY",
+           "DEEPGRAM_API_KEY", "CARTESIA_API_KEY", "LLM_BASE_URL", "PAYPAL_CLIENT_ID"):
+    os.environ.pop(_k, None)
+
 import pytest
 from sqlalchemy.pool import StaticPool
 

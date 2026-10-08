@@ -142,7 +142,9 @@ class VoiceCallManager:
         self._bots.pop(sess.call_id, None)
         self.live.unregister(sess.call_id)
 
-        spoke = any(m["role"] == "user" for m in sess.transcript)
+        # tools only run mid-conversation, so a call that used any was answered even if the
+        # transcript came back empty
+        spoke = any(m["role"] == "user" for m in sess.transcript) or bool(sess.tool_calls)
         paid = sess.paid or await self.deps.family_paid(sess.family_id)
         tagged = await tag_outcome(
             transcript=sess.transcript, hint=sess.hint, family_paid=paid,

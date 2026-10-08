@@ -9,8 +9,7 @@ import logging
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (BotStartedSpeakingFrame, BotStoppedSpeakingFrame, EndFrame,
                                    FunctionCallResultProperties, LLMMessagesAppendFrame, LLMRunFrame,
-                                   TranscriptionFrame, TTSTextFrame, UserStartedSpeakingFrame,
-                                   UserStoppedSpeakingFrame)
+                                   UserStartedSpeakingFrame, UserStoppedSpeakingFrame)
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.pipeline.pipeline import Pipeline
@@ -47,14 +46,14 @@ def ice_servers(cfg: Settings = default_settings) -> list[IceServer]:
 
 
 class CallTap(FrameProcessor):
-    """Feeds the injection gate and builds the transcript. Sits after the LLM, before TTS output:
-    user frames flow through it downstream, bot speaking frames come back upstream from the
-    transport, and TTS text flows past it downstream."""
+    """Feeds the injection gate (speaking state + voice-to-voice latency). Sits after the LLM: user
+    speaking frames flow through it downstream and bot speaking frames come back upstream from the
+    transport. The transcript is NOT built here: the user aggregator consumes transcription frames
+    and TTS text is produced after this point, so it comes from the aggregators' turn events."""
 
     def __init__(self, session: CallSession, gate: InjectionGate, **kw) -> None:
         super().__init__(**kw)
         self.s, self.gate = session, gate
-        self._bot_words: list[str] = []
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
@@ -66,18 +65,15 @@ class CallTap(FrameProcessor):
             await self.gate.bot_started()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             await self.gate.bot_stopped()
-            self._flush_bot()
-        elif isinstance(frame, TranscriptionFrame) and frame.text.strip():
-            self.s.transcript.append({"role": "user", "text": frame.text.strip()})
-        elif isinstance(frame, TTSTextFrame):
-            self._bot_words.append(frame.text)
+            self.s.latency_ms = list(self.gate.latencies_ms)
         await self.push_frame(frame, direction)
 
-    def _flush_bot(self) -> None:
-        if self._bot_words:
-            self.s.transcript.append({"role": "assistant", "text": " ".join(self._bot_words).strip()})
-            self._bot_words = []
-        self.s.latency_ms = list(self.gate.latencies_ms)
+
+def record_turn(session: CallSession, role: str, content: str | None, interrupted: bool = False) -> None:
+    """Append a finished conversation turn to the transcript (empty turns are ignored)."""
+    text = (content or "").strip()
+    if text:
+        session.transcript.append({"role": role, "text": text, **({"interrupted": True} if interrupted else {})})
 
 
 def tools_schema(allowed: list[str]) -> ToolsSchema:
@@ -143,7 +139,8 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
                          agg.assistant()])
     # A dead STT / LLM / TTS (bad key, outage) must end the call now, not sit silent until the cap.
     task = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True),
-                          processor_unusable_policy=ProcessorUnusablePolicy.CANCEL)
+                          processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
+                          enable_rtvi=False)  # no RTVI client here; it only filled the data-channel queue
     gate_push_task["task"] = task
     session.task = task
 
@@ -156,6 +153,14 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
     async def _disconnected(_t, _c):
         session.ended_reason = session.ended_reason or "client_left"
         await task.cancel()
+
+    @agg.user().event_handler("on_user_turn_stopped")
+    async def _user_turn(_agg, _strategy, message):
+        record_turn(session, "user", message.content)
+
+    @agg.assistant().event_handler("on_assistant_turn_stopped")
+    async def _assistant_turn(_agg, message):
+        record_turn(session, "assistant", message.content, message.interrupted)
 
     @task.event_handler("on_pipeline_error")
     async def _errored(_task, frame):
