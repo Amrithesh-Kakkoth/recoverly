@@ -25,6 +25,13 @@ async def family_of(order_id: str) -> str | None:
                               .where(PaymentObject.paypal_id == order_id))
 
 
+async def family_is_paid(family_id: str) -> bool:
+    async with db.session() as s:
+        return bool(await s.scalar(select(PaymentObject.id).where(
+            PaymentObject.family_id == family_id, PaymentObject.kind == "capture",
+            PaymentObject.status == "COMPLETED")))
+
+
 async def create_order(family_id: str, amount: str, currency: str = "USD", *,
                        gateway=None) -> dict:
     gw = gateway or get_gateway()

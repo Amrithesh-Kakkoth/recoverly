@@ -1,0 +1,7 @@
+"""Import side effects only: registers every table on Base.metadata."""
+from app.api import models as _api  # noqa: F401
+from app.channels import models as _channels  # noqa: F401
+from app.journeys import models as _journeys  # noqa: F401
+from app.payments import models as _payments  # noqa: F401
+from app.voice import models as _voice  # noqa: F401
+from app.webhooks import models as _webhooks  # noqa: F401

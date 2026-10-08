@@ -1,7 +1,16 @@
-"""Journey DSL: Wait, Message, Call, End. Routing only via next_by_outcome."""
+"""Journey DSL: Wait, Message, Call, End. No expression language, no Branch step.
+Routing is only via `next_by_outcome`; trigger filters are structured fields."""
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel
+
+from app.core.events import DomainEvent
+
+
+class OnEvent(BaseModel):
+    event: str
+    goto: str
 
 
 class Step(BaseModel):
@@ -26,6 +35,21 @@ class Journey(BaseModel):
     name: str
     trigger: dict
     settings: dict = {}
-    on_events: list[dict] = []
+    on_events: list[OnEvent] = []
     start: str
     steps: dict[str, Step]
+
+    def handler_for(self, event_type: str) -> str | None:
+        return next((h.goto for h in self.on_events if h.event == event_type), None)
+
+    def trigger_matches(self, event: DomainEvent) -> bool:
+        if event.type != self.trigger.get("event"):
+            return False
+        floor = self.trigger.get("filter", {}).get("amount_gte")
+        return floor is None or (event.amount is not None and event.amount >= Decimal(str(floor)))
+
+
+def edges(step: Step) -> set[str]:
+    out = set(step.next_by_outcome.values())
+    out.update(t for t in (step.next, step.default) if t)
+    return out

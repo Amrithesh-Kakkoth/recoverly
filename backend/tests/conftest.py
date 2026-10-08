@@ -3,8 +3,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.db import db
 from app.core.events import EventBus
-from app.payments import gateway, models as _p  # noqa: F401
-from app.webhooks import models as _w  # noqa: F401
+from app import all_models  # noqa: F401
+from app.payments import gateway
 
 
 @pytest.fixture(autouse=True)

@@ -20,7 +20,10 @@ class DomainEvent(BaseModel):
     def dedupe_key(self) -> str:
         if self.capture_id:
             return f"capture:{self.capture_id}"
-        return f"{self.type}:{self.order_id or self.family_id}"
+        if self.payload.get("call_id"):
+            return f"{self.type}:{self.payload['call_id']}"
+        ref = self.order_id or self.family_id
+        return f"{self.type}:{ref}" if ref else f"{self.type}:{id(self)}"  # no ref: never dedupe
 
 
 Handler = Callable[[DomainEvent], Awaitable[None]]
