@@ -46,7 +46,12 @@ async def tag_outcome(*, transcript: list[dict], hint: str | None, family_paid: 
     return t
 
 
-def openai_classifier(api_key: str, model: str) -> Classifier:
+def openai_classifier(api_key: str, model: str, base_url: str = "",
+                      client: httpx.AsyncClient | None = None) -> Classifier:
+    """Works against any OpenAI-compatible endpoint. Non-OpenAI hosts get plain JSON mode (strict
+    json_schema isn't universal); the reply is validated by tag_outcome either way."""
+    base = (base_url or "https://api.openai.com/v1").rstrip("/")
+    strict = not base_url
     schema = {"type": "object", "additionalProperties": False,
               "required": ["label", "confidence", "summary", "objections"],
               "properties": {"label": {"type": "string", "enum": LABELS},
@@ -55,16 +60,19 @@ def openai_classifier(api_key: str, model: str) -> Classifier:
 
     async def classify(transcript: list[dict], hint: str | None) -> dict:
         text = "\n".join(f"{m['role']}: {m['text']}" for m in transcript if m.get("text"))
-        async with httpx.AsyncClient(timeout=20) as c:
+        fmt = ({"type": "json_schema", "json_schema": {"name": "outcome", "strict": True, "schema": schema}}
+               if strict else {"type": "json_object"})
+        guide = "" if strict else (" Reply with one JSON object with keys label (one of " + ", ".join(LABELS)
+                                   + "), confidence (0-1), summary, objections (list of strings).")
+        async with (client or httpx.AsyncClient(timeout=20)) as c:
             r = await c.post(
-                "https://api.openai.com/v1/chat/completions",
+                f"{base}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": model, "response_format": {"type": "json_schema", "json_schema": {
-                    "name": "outcome", "strict": True, "schema": schema}},
+                json={"model": model, "response_format": fmt,
                       "messages": [
                           {"role": "system", "content": "Classify the outcome of this payment-recovery "
                            "phone call. 'paid' only if the transcript shows a [PAYPAL EVENT] payment "
-                           "confirmation. Give confidence 0-1."},
+                           "confirmation. Give confidence 0-1." + guide},
                           {"role": "user", "content": f"Agent hint: {hint}\n\n{text}"}]})
             r.raise_for_status()
         import json

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -95,3 +96,45 @@ async def test_voice_endpoints_report_unconfigured_voice():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/api/calls/x/offer", json=OFFER)
     assert r.status_code == 503 and "not configured" in r.json()["detail"]
+
+
+def test_voice_enabled_accepts_any_llm_key_and_host():
+    base = dict(deepgram_api_key="d", cartesia_api_key="c")
+    assert not Settings(**base).voice_enabled
+    assert Settings(**base, openai_api_key="o").voice_enabled
+    s = Settings(**base, llm_api_key="gsk", llm_base_url="https://api.groq.com/openai/v1")
+    assert s.voice_enabled and s.llm_key == "gsk"
+
+
+def test_pipeline_builds_against_a_non_openai_endpoint():
+    from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+
+    from app.voice import pipeline
+    from tests.test_voice_core import Deps
+
+    async def build():
+        cfg = Settings(deepgram_api_key="d", cartesia_api_key="c", llm_api_key="gsk",
+                       llm_base_url="https://api.groq.com/openai/v1", llm_model="llama-3.3-70b-versatile")
+        return pipeline.build_task(session(), SmallWebRTCConnection(ice_servers=[]), Deps(), cfg)
+
+    assert asyncio.run(build()) is not None
+
+
+async def test_classifier_uses_json_mode_on_non_openai_hosts_and_strict_schema_on_openai():
+    import httpx
+
+    from app.voice.tagger import openai_classifier
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append((str(req.url), body["response_format"]["type"]))
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(
+            {"label": "paid", "confidence": 0.9, "summary": "s", "objections": []})}}]})
+
+    tr = [{"role": "user", "text": "hi"}]
+    for base in ("https://api.groq.com/openai/v1", ""):
+        c = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        assert (await openai_classifier("k", "m", base, client=c)(tr, None))["label"] == "paid"
+    assert seen == [("https://api.groq.com/openai/v1/chat/completions", "json_object"),
+                    ("https://api.openai.com/v1/chat/completions", "json_schema")]

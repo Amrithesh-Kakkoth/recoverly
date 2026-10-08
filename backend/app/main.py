@@ -47,7 +47,7 @@ async def lifespan(_: FastAPI):
     app.state.live_calls = live
     if settings.voice_enabled:
         voice = VoiceCallManager(live=live, deps=PaymentDeps(channels),
-                                 classify=openai_classifier(settings.openai_api_key, settings.llm_model),
+                                 classify=openai_classifier(settings.llm_key, settings.llm_model, settings.llm_base_url),
                                  bot_runner=run_bot)
         app.state.voice, call_manager = voice, voice
     else:  # no keys: scripted fake so journeys still run end to end

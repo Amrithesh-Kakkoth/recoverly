@@ -93,7 +93,7 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
         audio_in_enabled=True, audio_out_enabled=True))
     stt = DeepgramSTTService(api_key=cfg.deepgram_api_key,
                              settings=DeepgramSTTService.Settings(model=cfg.stt_model))
-    llm = OpenAILLMService(api_key=cfg.openai_api_key,
+    llm = OpenAILLMService(api_key=cfg.llm_key, base_url=cfg.llm_base_url or None,
                            settings=OpenAILLMService.Settings(model=cfg.llm_model))
     tts = CartesiaTTSService(api_key=cfg.cartesia_api_key,
                              settings=CartesiaTTSService.Settings(voice=cfg.tts_voice_id))

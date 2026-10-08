@@ -31,6 +31,9 @@ class Settings(BaseSettings):
 
     # voice agent
     llm_model: str = "gpt-4.1-mini"
+    # Any OpenAI-compatible provider works (Groq, Gemini, OpenRouter...). Empty = OpenAI itself.
+    llm_base_url: str = ""
+    llm_api_key: str = ""              # falls back to OPENAI_API_KEY
     stt_model: str = "nova-3"
     tts_voice_id: str = "71a7ad14-091c-4e8e-a314-022ece01c121"  # a Cartesia stock voice
     call_max_seconds: int = 180        # spend cap: hard 3-minute call cap
@@ -44,8 +47,12 @@ class Settings(BaseSettings):
     demo_buyer_password: str = ""
 
     @property
+    def llm_key(self) -> str:
+        return self.llm_api_key or self.openai_api_key
+
+    @property
     def voice_enabled(self) -> bool:
-        return bool(self.openai_api_key and self.deepgram_api_key and self.cartesia_api_key)
+        return bool(self.llm_key and self.deepgram_api_key and self.cartesia_api_key)
 
 
 settings = Settings()
