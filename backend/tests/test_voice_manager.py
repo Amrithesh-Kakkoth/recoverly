@@ -55,10 +55,13 @@ class Rig:
             if not await s.get(Customer, "c1"):
                 s.add(Customer(id="c1", name="Asha",
                                call_consent_at=datetime(2026, 10, 1, tzinfo=timezone.utc)))
-            if not await s.get(JourneyVersion, 1):
-                s.add(JourneyVersion(id=1, journey_id=1, version=1, definition_json=sample()))
-            run = JourneyRun(journey_version_id=1, customer_id="c1", family_id=family, cursor="call1",
-                             status="in_call", started_at=datetime.now(timezone.utc),
+                await s.commit()
+            version_id = await s.scalar(select(JourneyVersion.id))
+        if version_id is None:               # a real journey + version (Postgres enforces the FK)
+            _, version_id = await save_journey(sample())
+        async with db.session() as s:
+            run = JourneyRun(journey_version_id=version_id, customer_id="c1", family_id=family,
+                             cursor="call1", status="in_call", started_at=datetime.now(timezone.utc),
                              context_json={"amount": amount, "currency": "USD"})
             s.add(run)
             await s.commit()

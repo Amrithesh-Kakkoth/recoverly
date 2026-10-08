@@ -20,7 +20,7 @@ from app.journeys.default import ensure_default_journey
 from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
 from app.payments.links import PaymentLinks
-from app.voice.manager import VoiceCallManager
+from app.voice.manager import VoiceCallManager, mark_interrupted_calls
 from app.voice.pipeline import run_bot
 from app.voice.registry import LiveCalls
 from app.voice.stub import FakeCallManager
@@ -55,6 +55,8 @@ async def lifespan(_: FastAPI):
     engine = JourneyEngine(channels=channels, call_manager=call_manager, pay_links=PaymentLinks(),
                            family_paid=payments.family_is_paid)
     engine.register()
+    await mark_interrupted_calls()               # calls cut off by the last shutdown
+    await engine.recover_orphaned_calls(lambda call_id: live.get(call_id) is not None)
     timers = TimerLoop(engine)
     loop_task = asyncio.create_task(timers.run())
     detector = AbandonDetector()

@@ -28,6 +28,15 @@ log = logging.getLogger(__name__)
 BotRunner = Callable[[CallSession, object, VoiceDeps], Awaitable[None]]
 
 
+async def mark_interrupted_calls() -> int:
+    """Boot recovery for the `calls` table: anything not `ended` was cut off by a restart."""
+    from sqlalchemy import update
+    async with db.session() as s:
+        res = await s.execute(update(Call).where(Call.status != "ended").values(status="interrupted"))
+        await s.commit()
+        return res.rowcount or 0
+
+
 class VoiceCallManager:
     def __init__(self, *, live: LiveCalls, deps: VoiceDeps, classify: Classifier | None,
                  bot_runner: BotRunner, request_handler=None, event_bus: EventBus = bus,

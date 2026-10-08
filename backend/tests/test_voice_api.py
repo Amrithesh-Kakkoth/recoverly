@@ -164,3 +164,20 @@ async def test_a_call_that_used_tools_is_never_tagged_no_answer(bus):
     s.tool_calls.append({"tool": "send_payment_link", "args": {}, "result": {"ok": True}})
     await r.mgr.finish(s)
     assert r.completed[0].payload["outcome"] != "no_answer"
+
+
+async def test_boot_marks_unfinished_calls_interrupted(bus):
+    from app.voice.manager import mark_interrupted_calls
+    from tests.test_voice_manager import Rig
+    r = Rig(bus)
+    rid = await r.seed()
+    ringing = await r.mgr.start_call(str(rid), r.STEP)
+    done = await r.mgr.start_call(str(await r.seed("F2")), r.STEP)
+    await r.mgr.finish(r.live.get(done), no_answer=True)
+    assert await mark_interrupted_calls() == 1
+    async with db.session() as s:
+        assert (await s.get(Call, ringing)).status == "interrupted"
+        assert (await s.get(Call, done)).status == "ended"
+    for ts in r.mgr._timers.values():
+        for t in ts:
+            t.cancel()

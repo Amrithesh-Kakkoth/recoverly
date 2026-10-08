@@ -226,3 +226,29 @@ async def test_abandon_event_starts_a_run_and_respects_trigger_filter(h):
     assert await h.engine._active_run_for("F9") is None   # below amount_gte 20
     await h.bus.publish(high)
     assert await h.engine._active_run_for("F8") is not None
+
+
+async def test_restart_recovers_a_run_parked_on_a_call_that_no_longer_exists(bus):
+    """A live call lives in memory. After a restart its run must not stay in_call forever."""
+    h1 = H(bus)
+    rid = await h1.start(scale=3600)
+    await h1.tick(seconds=1)
+    assert (await h1.run(rid)).status == "in_call"
+
+    h2 = H(bus)                                             # "new process": nothing is live
+    h2.clock.t = h1.clock.t
+    assert await h2.engine.recover_orphaned_calls() == 1
+    run = await h2.run(rid)
+    assert run.status == "waiting" and "call.retry_scheduled" in await h2.timeline(rid)
+    assert await h2.engine.recover_orphaned_calls() == 0    # idempotent
+
+    await h2.tick(seconds=3)                                # the retry dials again
+    assert h2.calls.dialed == ["call-1"] and (await h2.run(rid)).attempts_json == {"call1": 2}
+
+
+async def test_recovery_leaves_calls_that_are_still_live_alone(bus):
+    h = H(bus)
+    rid = await h.start(scale=3600)
+    await h.tick(seconds=1)
+    assert await h.engine.recover_orphaned_calls(lambda call_id: call_id == "call-1") == 0
+    assert (await h.run(rid)).status == "in_call"

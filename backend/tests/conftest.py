@@ -16,11 +16,25 @@ from app import all_models  # noqa: F401
 from app.payments import gateway
 
 
+# Default: in-memory SQLite (fast, no setup). Set TEST_DATABASE_URL to run the same suite on
+# Postgres, which is what production uses:  make test-pg
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+
+
 @pytest.fixture(autouse=True)
 async def database():
-    db.configure("sqlite+aiosqlite://", poolclass=StaticPool,
-                 connect_args={"check_same_thread": False})
-    await db.create_all()
+    if TEST_DATABASE_URL:
+        from sqlalchemy.pool import NullPool
+
+        from app.core.db import Base
+        db.configure(TEST_DATABASE_URL, poolclass=NullPool)
+        async with db.engine.begin() as conn:      # every test starts from empty tables
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        db.configure("sqlite+aiosqlite://", poolclass=StaticPool,
+                     connect_args={"check_same_thread": False})
+        await db.create_all()
     yield
     await db.engine.dispose()
 

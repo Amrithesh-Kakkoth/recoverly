@@ -160,6 +160,23 @@ class JourneyEngine:
             else:
                 await self._commit(c.s)
 
+    async def recover_orphaned_calls(self, is_live: Callable[[str], bool] = lambda _: False) -> int:
+        """Boot recovery. A live call exists only in memory, so after a restart any run still
+        `in_call` is parked on a call that can never complete. Report those calls as `no_answer`
+        so the journey moves on (a retry if attempts remain). Returns how many were recovered."""
+        async with db.session() as s:
+            rows = (await s.execute(select(JourneyRun.id, JourneyRun.context_json)
+                                    .where(JourneyRun.status == "in_call"))).all()
+        recovered = 0
+        for run_id, ctx in rows:
+            call_id = (ctx or {}).get("call_id")
+            if call_id and is_live(call_id):
+                continue
+            await self.on_call_completed(DomainEvent(type="call.completed", payload={
+                "run_id": run_id, "call_id": call_id, "outcome": "no_answer"}))
+            recovered += 1
+        return recovered
+
     async def on_timer(self, timer_id: int) -> None:
         async with db.session() as s:
             t = await s.get(Timer, timer_id)
