@@ -7,6 +7,11 @@ the behaviour. Run a variant and compare:
     python -m evals.prompt_eval v1          # frozen baseline
     python -m evals.prompt_eval v2          # what the app currently ships
     python -m evals.prompt_eval compare     # table from saved results
+    python -m evals.prompt_eval v2 1 --budget=120000 --fresh
+
+One pass of all scenarios costs roughly 100k tokens with the current prompt, so a run stops at a
+token budget (default 60k). On Groq's free tier the model has a 200k tokens/day cap that live
+calls share: check your quota before raising the budget.
 
 Uses real LLM calls (your LLM_API_KEY). It is rate-limit aware and retries on 429."""
 import asyncio
@@ -100,12 +105,19 @@ def openai_tools(specs: dict) -> list[dict]:
 
 # --------------------------------------------------------------------------- LLM driver
 class LLM:
-    def __init__(self) -> None:
+    def __init__(self, token_budget: int = 60_000) -> None:
+        """`token_budget` caps what one run may spend. The Groq free tier allows 200k tokens a DAY
+        per model, shared with live calls: an uncapped eval can leave the demo unable to speak."""
         self.http = httpx.AsyncClient(timeout=60)
         self.requests = 0
+        self.tokens = 0
+        self.token_budget = token_budget
 
     async def chat(self, messages: list[dict], tools: list[dict]) -> dict:
-        for attempt in range(8):
+        if self.tokens >= self.token_budget:
+            raise RuntimeError(f"eval token budget spent ({self.tokens}/{self.token_budget}); "
+                               "raise --budget deliberately if you have quota to spare")
+        for attempt in range(12):
             r = await self.http.post(
                 f"{(settings.llm_base_url or 'https://api.openai.com/v1').rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {settings.llm_key}"},
@@ -119,14 +131,19 @@ class LLM:
                 pass
             if r.status_code == 429:
                 wait = float(r.headers.get("retry-after", 8))
-                await asyncio.sleep(min(wait + 0.5, 70))
+                self.last_429 = r.json().get("error", {}).get("message", "")[:200]
+                if wait > 120:  # a daily/hourly cap, not the per-minute bucket: waiting won't help
+                    raise RuntimeError(f"rate limit needs {wait:.0f}s: {self.last_429}")
+                await asyncio.sleep(max(wait, 5) + 0.5)
                 continue
             if r.status_code >= 500:
                 await asyncio.sleep(3 + attempt)
                 continue
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]
-        raise RuntimeError("LLM kept rate-limiting")
+            body = r.json()
+            self.tokens += body.get("usage", {}).get("total_tokens", 0)
+            return body["choices"][0]["message"]
+        raise RuntimeError(f"LLM kept rate-limiting: {getattr(self, 'last_429', '')}")
 
 
 def _secs(v: str) -> float:
@@ -291,7 +308,8 @@ def score(name: str, r: Record) -> list[tuple[str, bool]]:
 
 # --------------------------------------------------------------------------- runner
 async def run(name: str, runs: int) -> None:
-    v, llm = variant(name), LLM()
+    budget = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--budget=")), 60_000)
+    v, llm = variant(name), LLM(budget)
     path = RESULTS / f"{name}.json"   # passes accumulate, so samples can be added over time
     out = json.loads(path.read_text()) if path.exists() and "--fresh" not in sys.argv else {}
     for sc, (steps, _) in SCENARIOS.items():
@@ -303,7 +321,8 @@ async def run(name: str, runs: int) -> None:
                             "turns": [{"text": t.text, "calls": [[n, a, {k: x for k, x in res.items() if k != "note"}]
                                                                   for n, a, res in t.calls]} for t in rec.turns]})
             ok = sum(p for _, p in checks)
-            print(f"{name} {sc} #{i + 1}: {ok}/{len(checks)}  (requests so far: {llm.requests})", flush=True)
+            print(f"{name} {sc} #{i + 1}: {ok}/{len(checks)}  "
+                  f"(requests {llm.requests}, tokens {llm.tokens}/{llm.token_budget})", flush=True)
             RESULTS.mkdir(exist_ok=True)
             path.write_text(json.dumps(out, indent=1))  # save as we go: a long run can be interrupted
     await llm.http.aclose()
@@ -343,4 +362,5 @@ if __name__ == "__main__":
     if arg == "compare":
         compare(sys.argv[2:] or ["v1", "v2"])
     else:
-        asyncio.run(run(arg, int(sys.argv[2]) if len(sys.argv) > 2 else 2))
+        runs = next((int(a) for a in sys.argv[2:] if a.isdigit()), 1)
+        asyncio.run(run(arg, runs))
