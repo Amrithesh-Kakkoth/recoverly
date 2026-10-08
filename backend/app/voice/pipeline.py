@@ -33,7 +33,7 @@ from app.core.config import Settings, settings as default_settings
 from app.voice.gate import InjectionGate
 from app.voice.prompt import build_prompt
 from app.voice.session import CallSession
-from app.voice.tools import TOOL_SPECS, ToolBox, VoiceDeps
+from app.voice.tools import ToolBox, VoiceDeps, for_llm, tool_specs
 
 log = logging.getLogger(__name__)
 
@@ -80,15 +80,16 @@ def record_turn(session: CallSession, role: str, content: str | None, interrupte
         session.transcript.append({"role": role, "text": text, **({"interrupted": True} if interrupted else {})})
 
 
-def tools_schema(allowed: list[str]) -> ToolsSchema:
+def tools_schema(session: CallSession) -> ToolsSchema:
     return ToolsSchema(standard_tools=[
-        FunctionSchema(name=n, description=TOOL_SPECS[n]["description"],
-                       properties=TOOL_SPECS[n]["properties"], required=TOOL_SPECS[n]["required"])
-        for n in allowed if n in TOOL_SPECS])
+        FunctionSchema(name=n, description=spec["description"], properties=spec["properties"],
+                       required=spec["required"])
+        for n, spec in tool_specs(session).items()])
 
 
 def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: VoiceDeps,
-               cfg: Settings = default_settings, merchant: str = "the store") -> PipelineWorker:
+               cfg: Settings = default_settings, merchant: str | None = None) -> PipelineWorker:
+    merchant = merchant or cfg.merchant_name
     transport = SmallWebRTCTransport(connection, params=TransportParams(
         audio_in_enabled=True, audio_out_enabled=True))
     stt = DeepgramSTTService(api_key=cfg.deepgram_api_key,
@@ -101,7 +102,7 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
     context = LLMContext(
         messages=[{"role": "system", "content": build_prompt(session, merchant)},
                   {"role": "user", "content": OPENING}],
-        tools=tools_schema(session.tools))
+        tools=tools_schema(session))
     agg = LLMContextAggregatorPair(context, user_params=LLMUserAggregatorParams(
         vad_analyzer=SileroVADAnalyzer(), user_idle_timeout=cfg.silence_timeout_seconds,
         # Real-call lessons: speaker echo and noise were chopping Maya's replies to one word.
@@ -117,7 +118,7 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
     async def push(messages: list[dict]) -> None:
         for m in messages:
             if m["content"].startswith("[PAYPAL EVENT]"):  # chip in the transcript, at injection time
-                session.transcript.append({"role": "event", "text": m["content"]})
+                session.transcript.append({"role": "event", "text": m["content"].split("\n")[0]})
         await gate_push_task["task"].queue_frames([LLMMessagesAppendFrame(messages, run_llm=True)])
 
     gate = InjectionGate(push)
@@ -130,7 +131,7 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
             # regardless of which direction Pipecat routes the result frame
             await gate.call_started(params.tool_call_id)
             try:
-                result = await toolbox.dispatch(name, params.arguments)
+                result = for_llm(await toolbox.dispatch(name, params.arguments))
                 if name == "end_call":
                     await params.result_callback(result, properties=FunctionCallResultProperties(
                         run_llm=False))
@@ -141,9 +142,8 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
                 await gate.call_finished(params.tool_call_id)
         return handler
 
-    for name in session.tools:
-        if name in TOOL_SPECS:
-            llm.register_function(name, make_handler(name))
+    for name in tool_specs(session):
+        llm.register_function(name, make_handler(name))
 
     tap = CallTap(session, gate)
     pipeline = Pipeline([transport.input(), stt, agg.user(), llm, tap, tts, transport.output(),

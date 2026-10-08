@@ -8,35 +8,81 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Protocol
 
+from app.voice.prompt import spoken_amount
 from app.voice.session import CallSession
 
 ORDER_REUSE_MAX_AGE = timedelta(hours=2, minutes=30)   # PayPal orders expire at 3 h
 ORDER_LIFETIME = timedelta(hours=3)
 IDEMPOTENT = {"send_payment_link", "apply_offer"}  # mutating tools; reads must stay live
 
-TOOL_SPECS = {
-    "send_payment_link": {
-        "description": "Send the customer a PayPal payment link on WhatsApp. Optionally apply a "
-                       "discount percentage you are allowed to offer.",
-        "properties": {"offer_pct": {"type": "number", "description": "Discount percent, optional."}},
-        "required": []},
-    "check_payment_status": {
-        "description": "Check whether the customer has paid yet. Returns unpaid, approved or paid.",
-        "properties": {}, "required": []},
-    "apply_offer": {
-        "description": "Apply a discount percentage to the order. Only within the allowed maximum.",
-        "properties": {"pct": {"type": "number", "description": "Discount percent."}},
-        "required": ["pct"]},
-    "end_call": {
-        "description": "End the call politely once the conversation is finished.",
-        "properties": {"outcome_hint": {
-            "type": "string",
-            "enum": ["paid", "promised_to_pay", "declined", "callback_requested", "needs_human"]}},
-        "required": ["outcome_hint"]},
-    "transfer_to_human": {
-        "description": "Ask for a human colleague to follow up. Use when the customer asks for one.",
-        "properties": {}, "required": []},
-}
+TOOL_NAMES = ("send_payment_link", "check_payment_status", "apply_offer", "end_call",
+              "transfer_to_human")
+INTERNAL_KEYS = {"order_id"}  # never shown to the model: it must not read ids aloud
+
+
+def tool_specs(session: CallSession) -> dict[str, dict]:
+    """Tool descriptions the model sees, for this call. Each says what the tool does, when to use
+    it, when not to, and what the result means. Built per session so the discount limit is stated
+    as a number and tools that cannot be used on this call are simply absent."""
+    n = f"{session.offer_max_pct:g}"
+    specs: dict[str, dict] = {
+        "send_payment_link": {
+            "description": (
+                "Send the secure PayPal payment link for this order to the customer's WhatsApp, at "
+                "the current price. Use it only after the customer has agreed to receive the link. "
+                "If they say it did not arrive, call it again: it resends the same link. After it "
+                "succeeds, tell the customer the link is on their WhatsApp and offer to stay on the "
+                "line while they pay. Never read the link aloud."),
+            "properties": {}, "required": []},
+        "check_payment_status": {
+            "description": (
+                "Look up whether this order has been paid. Use it when the customer says they have "
+                "paid, or asks whether it went through, and you have not received a [PAYPAL EVENT] "
+                "confirming it. Returns status 'paid' (money received: thank them and end the call), "
+                "'approved' (they approved it in PayPal and it is being finalised: ask them to hold "
+                "on a few seconds, then check once more) or 'unpaid' (nothing received yet: say you "
+                "do not see it yet and offer to wait). You do not need to poll: payments are also "
+                "reported to you automatically."),
+            "properties": {}, "required": []},
+        "apply_offer": {
+            "description": (
+                f"Reduce the price of this order by a percentage, from 1 to {n}. Use it only when the "
+                "customer has said the price is the problem and has accepted a discount you offered. "
+                "It does not send anything to the customer: it returns the new price, which you tell "
+                "them, and then you call send_payment_link to send the link at that price. Requests "
+                f"above {n} percent are refused."),
+            "properties": {"pct": {"type": "number", "minimum": 1, "maximum": session.offer_max_pct,
+                                   "description": f"Discount percent, between 1 and {n}."}},
+            "required": ["pct"]},
+        "end_call": {
+            "description": (
+                "Hang up. This must be the last thing you do, in the same turn as your spoken "
+                "goodbye: the line closes immediately and nothing after it is heard."),
+            "properties": {"outcome_hint": {
+                "type": "string",
+                "enum": ["paid", "promised_to_pay", "declined", "callback_requested", "needs_human"],
+                "description": (
+                    "How the call ended. paid: a [PAYPAL EVENT] or check_payment_status confirmed "
+                    "the payment. promised_to_pay: they said they will pay later. declined: they do "
+                    "not want the order or asked not to be called. callback_requested: it was a bad "
+                    "time. needs_human: they asked for a person, or needed something you could not do.")}},
+            "required": ["outcome_hint"]},
+        "transfer_to_human": {
+            "description": (
+                "Flag this customer for a human colleague to follow up. It does not connect anyone "
+                "live. Use it when the customer asks for a person or needs something you cannot do, "
+                "then tell them a colleague will get in touch and end the call as needs_human."),
+            "properties": {}, "required": []},
+    }
+    usable = [t for t in session.tools if t in specs]
+    if not session.offer_max_pct:  # nothing to offer on this call: don't show a tool that can't work
+        usable = [t for t in usable if t != "apply_offer"]
+    return {t: specs[t] for t in usable}
+
+
+def for_llm(result: dict) -> dict:
+    """The model's view of a tool result: internal ids removed."""
+    return {k: v for k, v in result.items() if k not in INTERNAL_KEYS}
 
 
 class VoiceDeps(Protocol):
@@ -61,16 +107,20 @@ class ToolBox:
     async def dispatch(self, name: str, args: dict | None) -> dict:
         args = args or {}
         if name not in self.s.tools:
-            return {"ok": False, "error": "tool_not_allowed"}
+            return {"ok": False, "error": "tool_not_allowed",
+                    "note": "You cannot use this tool on this call. Carry on without it."}
         key = f"{self.s.call_id}:{name}:{hashlib.sha1(json.dumps(args, sort_keys=True).encode()).hexdigest()[:12]}"
         if name in IDEMPOTENT and key in self.s.results:  # LLM retried: same answer, no 2nd order
             return self.s.results[key]
         try:
             result = await getattr(self, name)(**args)
         except TypeError:
-            result = {"ok": False, "error": "bad_arguments"}
+            result = {"ok": False, "error": "bad_arguments",
+                      "note": "The arguments were not valid for this tool. Check them and try once more."}
         except Exception:
-            result = {"ok": False, "error": "internal_error"}
+            result = {"ok": False, "error": "internal_error",
+                      "note": "Something went wrong on our side. Apologise and try once more, or end "
+                              "the call as needs_human."}
         if name in IDEMPOTENT:
             self.s.results[key] = result
         self.s.tool_calls.append({"tool": name, "args": args, "result": result,
@@ -84,6 +134,21 @@ class ToolBox:
     def _pct_ok(self, pct: float) -> bool:
         return 0 <= pct <= self.s.offer_max_pct
 
+    def _say(self, amount: Decimal) -> str:
+        return spoken_amount(amount, self.s.currency)
+
+    def _already_paid(self) -> dict:
+        return {"ok": False, "error": "already_paid",
+                "note": "This order is already paid. Tell the customer, thank them, say goodbye and "
+                        "end the call with outcome paid."}
+
+    def _over_limit(self) -> dict:
+        n = f"{self.s.offer_max_pct:g}"
+        note = (f"Not applied. The most you can offer is {n} percent. Tell the customer that is the "
+                "best you can do." if self.s.offer_max_pct else
+                "Not applied. No discount is available on this order. Tell the customer kindly.")
+        return {"ok": False, "error": "offer_exceeds_limit", "max_pct": self.s.offer_max_pct, "note": note}
+
     async def _paid(self) -> bool:
         if self.s.paid:
             return True
@@ -94,10 +159,10 @@ class ToolBox:
     # -- tools --------------------------------------------------------------------------
     async def send_payment_link(self, offer_pct: float | None = None) -> dict:
         if await self._paid():
-            return {"ok": False, "error": "already_paid"}
+            return self._already_paid()
         pct = self.s.discount_pct if offer_pct is None else float(offer_pct)
         if not self._pct_ok(pct):
-            return {"ok": False, "error": "offer_exceeds_limit", "max_pct": self.s.offer_max_pct}
+            return self._over_limit()
         self.s.discount_pct = max(self.s.discount_pct, pct)
         amount = self._price(self.s.discount_pct)
         now = self.deps.now()
@@ -115,26 +180,38 @@ class ToolBox:
                 "pay_url": url, "amount": str(amount), "currency": self.s.currency,
                 "run_id": self.s.run_id})
         left = max(0, int((created + ORDER_LIFETIME - now).total_seconds() // 60))
-        return {"ok": True, "amount": str(amount), "expires_in_min": left, "order_id": order_id}
+        return {"ok": True, "amount": str(amount), "amount_spoken": self._say(amount),
+                "expires_in_min": left, "order_id": order_id,
+                "note": "The link is now on the customer's WhatsApp. Tell them, and offer to stay on "
+                        "the line while they pay. Do not read the link aloud."}
 
     async def apply_offer(self, pct: float) -> dict:
         if await self._paid():
-            return {"ok": False, "error": "already_paid"}
+            return self._already_paid()
         pct = float(pct)
         if not self._pct_ok(pct):
-            return {"ok": False, "error": "offer_exceeds_limit", "max_pct": self.s.offer_max_pct}
+            return self._over_limit()
         self.s.discount_pct = max(self.s.discount_pct, pct)
         amount = self._price(self.s.discount_pct)
         await self.deps.create_order(self.s.family_id, str(amount), self.s.currency)  # same family
-        return {"ok": True, "new_amount": str(amount)}
+        return {"ok": True, "new_amount": str(amount), "new_amount_spoken": self._say(amount),
+                "note": "Discount applied, nothing has been sent yet. Tell the customer the new "
+                        "price, then call send_payment_link to send the link at that price."}
 
     async def check_payment_status(self) -> dict:
         if await self._paid():
-            return {"status": "paid", "amount": str(self._price(self.s.discount_pct))}
+            paid = self._price(self.s.discount_pct)
+            return {"status": "paid", "amount": str(paid), "amount_spoken": self._say(paid),
+                    "note": "Payment received. Tell the customer it came through, thank them, say "
+                            "goodbye and end the call with outcome paid."}
         order = await self.deps.open_order(self.s.family_id)
         if order and await self.deps.order_status(order["order_id"]) == "APPROVED":
-            return {"status": "approved"}
-        return {"status": "unpaid"}
+            return {"status": "approved",
+                    "note": "They approved it in PayPal and it is being finalised. Ask them to hold "
+                            "on a few seconds, then check once more."}
+        return {"status": "unpaid",
+                "note": "No payment has arrived yet. Do not say it went through. Tell the customer "
+                        "you do not see it yet and offer to wait while they finish."}
 
     async def end_call(self, outcome_hint: str = "declined") -> dict:
         self.s.hint = outcome_hint
@@ -143,7 +220,8 @@ class ToolBox:
 
     async def transfer_to_human(self) -> dict:
         self.s.transfer_requested = True  # log only; no real transfer
-        return {"ok": True}
+        return {"ok": True, "note": "Flagged for a colleague. Tell the customer someone will get in "
+                                    "touch, say goodbye and end the call as needs_human."}
 
 
 class PaymentDeps:

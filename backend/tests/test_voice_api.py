@@ -41,7 +41,7 @@ def test_pipeline_builds_with_the_installed_pipecat():
 
     s, task = asyncio.run(build())
     assert s.task is task and s.gate is not None
-    schema = pipeline.tools_schema(s.tools)
+    schema = pipeline.tools_schema(s)
     assert sorted(f.name for f in schema.standard_tools) == sorted(s.tools)
 
 

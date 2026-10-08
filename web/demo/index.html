@@ -213,7 +213,7 @@ function renderTranscript(items) {
     h.textContent = "No conversation was captured."; feed.appendChild(h); return; }
   for (const m of items) {
     const el = document.createElement("div");
-    if (m.role === "event") { el.className = "chip"; el.textContent = "⚡ PayPal · " + m.text; }
+    if (m.role === "event") { el.className = "chip"; el.textContent = "⚡ PayPal · " + m.text.replace(/^\[PAYPAL EVENT\]\s*/, ""); }
     else { el.className = "msg " + (m.role === "user" ? "me" : "bot");
            const s = document.createElement("small"); s.textContent = m.role === "user" ? "You" : "Maya (AI)";
            el.append(s, document.createTextNode(m.text)); }

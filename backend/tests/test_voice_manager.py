@@ -215,7 +215,7 @@ async def test_payment_mid_call_end_to_end(bus):
 
     run = await h.run(rid)
     assert (run.status, run.close_reason) == ("done", "recovered")
-    assert pushed and pushed[0][0]["content"] == "[PAYPAL EVENT] Payment captured: $49.00"
+    assert pushed and pushed[0][0]["content"].startswith("[PAYPAL EVENT] Payment captured: $49.00")
     assert [t for t, _ in deps.sent] == ["pay_link"]
     async with db.session() as s:
         out = await s.scalar(select(Outcome))

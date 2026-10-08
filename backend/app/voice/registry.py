@@ -6,6 +6,7 @@ the verified event into the call, queued by the gate if the moment is busy."""
 import logging
 
 from app.core.events import DomainEvent, EventBus, bus
+from app.voice.prompt import payment_event_text
 from app.voice.session import CallSession
 
 log = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class LiveCalls:
             return
         s.paid = True
         if s.gate is not None:
-            await s.gate.inject(f"[PAYPAL EVENT] Payment captured: ${event.amount}")
+            await s.gate.inject(payment_event_text(event.amount, s.currency))
 
     def register_bus(self, event_bus: EventBus = bus) -> None:
         event_bus.subscribe("payment.captured", self.on_payment)

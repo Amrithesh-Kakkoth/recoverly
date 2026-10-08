@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     kill_switch: bool = False
 
     # voice agent
+    merchant_name: str = "Northwind Store"   # how the agent introduces who it is calling for
     llm_model: str = "gpt-4.1-mini"
     # Any OpenAI-compatible provider works (Groq, Gemini, OpenRouter...). Empty = OpenAI itself.
     llm_base_url: str = ""
