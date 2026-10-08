@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.router import router as api_router
+from app.api.runs import router as runs_router
 from app.api.shop import router as shop_router
 from app.core.config import settings
 from app.channels.web_inbox import WebInbox
@@ -46,5 +47,6 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Recoverly", lifespan=lifespan)
 app.include_router(api_router)
 app.include_router(shop_router)
+app.include_router(runs_router)
 app.include_router(payments_router)
 app.include_router(webhooks_router)

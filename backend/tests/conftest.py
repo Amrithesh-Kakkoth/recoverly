@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy.pool import StaticPool
 
+from app.core import sse
 from app.core.db import db
 from app.core.events import EventBus
 from app import all_models  # noqa: F401
@@ -14,6 +15,12 @@ async def database():
     await db.create_all()
     yield
     await db.engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def fresh_hub(monkeypatch):
+    monkeypatch.setattr(sse, "hub", sse.SSEHub())
+    return sse.hub
 
 
 @pytest.fixture

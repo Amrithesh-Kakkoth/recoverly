@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.models import Customer
 from app.core.config import settings
 from app.core.db import db
+from app.core import sse
 from app.core.events import DomainEvent, EventBus, bus
 from app.core.interfaces import CallManager, Channel, LiveCallRegistry, PayLinks
 from app.journeys.dsl import Journey, Step
@@ -46,7 +47,9 @@ class JourneyEngine:
     def __init__(self, *, channels: dict[str, Channel], call_manager: CallManager,
                  pay_links: PayLinks | None = None, registry: LiveCallRegistry | None = None,
                  family_paid: Callable[[str], Awaitable[bool]] | None = None,
-                 clock: Callable[[], datetime] | None = None) -> None:
+                 clock: Callable[[], datetime] | None = None,
+                 hub: sse.SSEHub | None = None) -> None:
+        self.hub = hub or sse.hub
         self.channels, self.call_manager = channels, call_manager
         self.pay_links, self.registry = pay_links, registry
         self.family_paid = family_paid or _no_family_check
@@ -76,7 +79,7 @@ class JourneyEngine:
             except IntegrityError:
                 return None
             self._tl(s, run, "run.started", journey=journey.name, family_id=family_id)
-            await s.commit()
+            await self._commit(s)
             run_id = run.id
         await self.advance(run_id)
         return run_id
@@ -122,7 +125,7 @@ class JourneyEngine:
                 if self.registry and ctx.get("call_id"):
                     await self.registry.inject(
                         ctx["call_id"], f"[PAYPAL EVENT] Payment captured: ${event.amount}")
-                await c.s.commit()
+                await self._commit(c.s)
                 return
             handler = c.journey.handler_for("payment.captured")
             if handler:
@@ -130,7 +133,7 @@ class JourneyEngine:
             elif step.type == "wait" and "payment.captured" in step.until_any and step.next:
                 await self._interrupt(c, step.next, "payment.captured")
             else:
-                await c.s.commit()
+                await self._commit(c.s)
 
     async def on_call_completed(self, event: DomainEvent) -> None:
         run_id, call_id = event.payload.get("run_id"), event.payload.get("call_id")
@@ -157,7 +160,7 @@ class JourneyEngine:
             if not await self._after_call(c, c.journey.steps[run.cursor], outcome):
                 await self._advance(c)
             else:
-                await c.s.commit()
+                await self._commit(c.s)
 
     async def on_timer(self, timer_id: int) -> None:
         async with db.session() as s:
@@ -178,7 +181,7 @@ class JourneyEngine:
                 if not await self._enter_call(c, step):
                     await self._advance(c)
                 else:
-                    await c.s.commit()
+                    await self._commit(c.s)
 
     # ------------------------------------------------------------------ interpreter
     async def _advance(self, c: _Ctx) -> None:
@@ -202,7 +205,7 @@ class JourneyEngine:
             else:  # end
                 await self._end(c, step)
                 break
-        await c.s.commit()
+        await self._commit(c.s)
 
     async def _enter_call(self, c: _Ctx, step: Step) -> bool:
         """True if the run is parked (dialled or deferred); False if the cursor moved on."""
@@ -230,7 +233,7 @@ class JourneyEngine:
             return await self._after_call(c, step, "attempts_exhausted")
         attempts[run.cursor] = attempts.get(run.cursor, 0) + 1
         run.attempts_json = attempts
-        await c.s.commit()  # release the transaction before dialing
+        await self._commit(c.s)  # release the transaction before dialing
         call_id = await self.call_manager.start_call(str(run.id), step.model_dump())
         run.context_json = {**(run.context_json or {}), "call_id": call_id}
         run.status = "in_call"
@@ -254,9 +257,9 @@ class JourneyEngine:
         return False
 
     async def _send_message(self, c: _Ctx, step: Step) -> None:
-        await c.s.commit()  # never hold a DB transaction open across an external call
+        await self._commit(c.s)  # never hold a DB transaction open across an external call
         run, ctx = c.run, dict(c.run.context_json or {})
-        vars_: dict = {"customer_id": run.customer_id, **{k: ctx.get(k) for k in ("amount", "currency")}}
+        vars_: dict = {"customer_id": run.customer_id, "run_id": run.id, **{k: ctx.get(k) for k in ("amount", "currency")}}
         if step.include_pay_link and self.pay_links:
             vars_["pay_url"] = await self.pay_links.pay_link(
                 run.family_id, ctx.get("amount") or "0.00", ctx.get("currency") or "USD")
@@ -301,7 +304,19 @@ class JourneyEngine:
                       payload_json={"step_id": c.run.cursor}))
 
     def _tl(self, s: AsyncSession, run: JourneyRun, kind: str, **payload) -> None:
-        s.add(TimelineEvent(run_id=run.id, kind=kind, payload_json=payload, ts=self.clock()))
+        ev = TimelineEvent(run_id=run.id, kind=kind, payload_json=payload, ts=self.clock())
+        s.add(ev)
+        s.info.setdefault("sse", []).append(ev)
+
+    async def _commit(self, s: AsyncSession) -> None:
+        """Commit, then publish: subscribers only ever see state that is durable."""
+        await s.commit()
+        for ev in s.info.pop("sse", []):
+            data = {"id": ev.id, "run_id": ev.run_id, "kind": ev.kind,
+                    "payload": ev.payload_json, "ts": ev.ts}
+            self.hub.publish(f"run:{ev.run_id}", "timeline", data)
+            if ev.kind in ("run.started", "run.ended"):
+                self.hub.publish("global", ev.kind, data)
 
     async def _open_step(self, c: _Ctx, step_id: str) -> None:
         sr = StepRun(run_id=c.run.id, step_id=step_id, status="running")
