@@ -39,22 +39,13 @@ class Links:
         return f"https://pay.test/{family_id}"
 
 
-class Registry:
-    def __init__(self):
-        self.injected: list[tuple[str, str]] = []
-
-    async def inject(self, call_id, text):
-        self.injected.append((call_id, text))
-        return True
-
-
 class H:
     """Test harness wiring an engine to fakes and a controllable clock."""
 
     def __init__(self, bus, family_paid=None):
-        self.clock, self.calls, self.chan, self.reg = FakeClock(), Calls(), Chan(), Registry()
+        self.clock, self.calls, self.chan = FakeClock(), Calls(), Chan()
         self.engine = JourneyEngine(channels={"web_inbox": self.chan}, call_manager=self.calls,
-                                    pay_links=Links(), registry=self.reg, clock=self.clock,
+                                    pay_links=Links(), clock=self.clock,
                                     family_paid=family_paid)
         self.engine.register(bus)
         self.timers = TimerLoop(self.engine)
@@ -108,10 +99,9 @@ async def test_paid_on_call_routes_to_thanks_even_if_agent_reports_no_answer(h):
     assert await h.tick(seconds=31) == 1
     assert (await h.run(rid)).status == "in_call" and h.calls.dialed == ["call-1"]
 
-    await h.pay()  # mid-call: deferred and injected, run stays on the call
+    await h.pay()  # mid-call: routing is deferred, the run stays on the call
     run = await h.run(rid)
     assert run.status == "in_call" and run.cursor == "call1"
-    assert h.reg.injected == [("call-1", "[PAYPAL EVENT] Payment captured: $49.00")]
 
     await h.complete_call(rid, "call-1", "no_answer")  # ctx.paid beats outcome routing
     run = await h.run(rid)

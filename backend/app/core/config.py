@@ -29,5 +29,21 @@ class Settings(BaseSettings):
     abandon_after_seconds: float = 900.0  # real time; set 90 for the demo
     kill_switch: bool = False
 
+    # voice agent
+    llm_model: str = "gpt-4.1-mini"
+    stt_model: str = "nova-3"
+    tts_voice_id: str = "71a7ad14-091c-4e8e-a314-022ece01c121"  # a Cartesia stock voice
+    call_max_seconds: int = 180        # spend cap: hard 3-minute call cap
+    ring_timeout_seconds: int = 45     # unanswered browser call -> no_answer
+    max_concurrent_calls: int = 3
+    silence_timeout_seconds: int = 25
+    turn_ice_urls: str = ""            # comma-separated, e.g. turn:host:3478
+    turn_username: str = ""
+    turn_credential: str = ""
+
+    @property
+    def voice_enabled(self) -> bool:
+        return bool(self.openai_api_key and self.deepgram_api_key and self.cartesia_api_key)
+
 
 settings = Settings()

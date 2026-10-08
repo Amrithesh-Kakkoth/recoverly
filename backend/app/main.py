@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.calls import router as calls_router
 from app.api.router import router as api_router
 from app.api.runs import router as runs_router
 from app.api.shop import router as shop_router
@@ -13,7 +14,12 @@ from app.detector.service import AbandonDetector
 from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
 from app.payments.links import PaymentLinks
+from app.voice.manager import VoiceCallManager
+from app.voice.pipeline import run_bot
+from app.voice.registry import LiveCalls
 from app.voice.stub import FakeCallManager
+from app.voice.tagger import openai_classifier
+from app.voice.tools import PaymentDeps
 from app import all_models  # noqa: F401  (register tables)
 from app.payments import service as payments
 from app.payments.router import router as payments_router
@@ -28,10 +34,19 @@ if "sandbox.paypal.com" not in settings.paypal_base_url:
 async def lifespan(_: FastAPI):
     await db.create_all()
     payments.register()
-    engine = JourneyEngine(
-        channels={"whatsapp": WebInbox("whatsapp"), "web_inbox": WebInbox()},
-        call_manager=FakeCallManager(),  # W3 swaps in the real Pipecat call manager
-        pay_links=PaymentLinks(), family_paid=payments.family_is_paid)
+    channels = {"whatsapp": WebInbox("whatsapp"), "web_inbox": WebInbox()}
+    live = LiveCalls()
+    live.register_bus()
+    app.state.live_calls = live
+    if settings.voice_enabled:
+        voice = VoiceCallManager(live=live, deps=PaymentDeps(channels),
+                                 classify=openai_classifier(settings.openai_api_key, settings.llm_model),
+                                 bot_runner=run_bot)
+        app.state.voice, call_manager = voice, voice
+    else:  # no keys: scripted fake so journeys still run end to end
+        app.state.voice, call_manager = None, FakeCallManager()
+    engine = JourneyEngine(channels=channels, call_manager=call_manager, pay_links=PaymentLinks(),
+                           family_paid=payments.family_is_paid)
     engine.register()
     timers = TimerLoop(engine)
     loop_task = asyncio.create_task(timers.run())
@@ -48,5 +63,6 @@ app = FastAPI(title="Recoverly", lifespan=lifespan)
 app.include_router(api_router)
 app.include_router(shop_router)
 app.include_router(runs_router)
+app.include_router(calls_router)
 app.include_router(payments_router)
 app.include_router(webhooks_router)

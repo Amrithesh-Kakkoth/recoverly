@@ -4,6 +4,7 @@ from app.core.db import db
 
 _TEXT = {
     "cart_reminder": "Hi! You left something in your cart. Complete your purchase here: {pay_url}",
+    "pay_link": "Here is your secure PayPal link for {amount} {currency}: {pay_url}",
     "thank_you": "Thanks, your payment of {amount} {currency} came through!",
 }
 

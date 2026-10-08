@@ -26,7 +26,7 @@ from app.core.config import settings
 from app.core.db import db
 from app.core import sse
 from app.core.events import DomainEvent, EventBus, bus
-from app.core.interfaces import CallManager, Channel, LiveCallRegistry, PayLinks
+from app.core.interfaces import CallManager, Channel, PayLinks
 from app.journeys.dsl import Journey, Step
 from app.journeys.models import JourneyRecord, JourneyRun, JourneyVersion, StepRun, Timer, TimelineEvent
 from app.journeys.timeutil import next_window_start, parse_duration, utc
@@ -45,13 +45,13 @@ class _Ctx:
 
 class JourneyEngine:
     def __init__(self, *, channels: dict[str, Channel], call_manager: CallManager,
-                 pay_links: PayLinks | None = None, registry: LiveCallRegistry | None = None,
+                 pay_links: PayLinks | None = None,
                  family_paid: Callable[[str], Awaitable[bool]] | None = None,
                  clock: Callable[[], datetime] | None = None,
                  hub: sse.SSEHub | None = None) -> None:
         self.hub = hub or sse.hub
         self.channels, self.call_manager = channels, call_manager
-        self.pay_links, self.registry = pay_links, registry
+        self.pay_links = pay_links
         self.family_paid = family_paid or _no_family_check
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -121,10 +121,8 @@ class JourneyEngine:
                      source=event.source, status=run.status)
             step = c.journey.steps[run.cursor]
             if run.status == "in_call":
-                # deferred: tell the agent, let the call finish, route after completion
-                if self.registry and ctx.get("call_id"):
-                    await self.registry.inject(
-                        ctx["call_id"], f"[PAYPAL EVENT] Payment captured: ${event.amount}")
+                # deferred: the voice module injects the event into the live call; we let the
+                # call finish and route after completion (ctx.paid is checked first)
                 await self._commit(c.s)
                 return
             handler = c.journey.handler_for("payment.captured")

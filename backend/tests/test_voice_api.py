@@ -1,0 +1,97 @@
+import asyncio
+from datetime import datetime, timezone
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from app.core.config import Settings
+from app.core.db import db
+from app.main import app
+from app.voice.manager import VoiceCallManager
+from app.voice.models import Call
+from app.voice.registry import LiveCalls
+from app.voice.session import CallSession
+from tests.test_voice_manager import CFG, FakeHandler, Rig
+from tests.test_voice_core import session
+
+
+async def test_completion_is_reported_even_if_persisting_fails(bus):
+    """Regression: the journey run parks on call.completed, so it must always fire."""
+    r = Rig(bus)
+    ghost = session(call_id="never-saved")          # no Call row: the DB update will raise
+    r.live.register(ghost)
+    await r.mgr.finish(ghost, no_answer=True)
+    assert [e.payload["call_id"] for e in r.completed] == ["never-saved"]
+
+
+def test_pipeline_builds_with_the_installed_pipecat():
+    """Guards against Pipecat API drift: constructs every service + the pipeline (no network)."""
+    from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+
+    from app.voice import pipeline
+    from tests.test_voice_core import Deps
+
+    async def build():
+        cfg = Settings(**CFG)
+        s = session()
+        task = pipeline.build_task(s, SmallWebRTCConnection(ice_servers=pipeline.ice_servers(cfg)),
+                                   Deps(), cfg)
+        return s, task
+
+    s, task = asyncio.run(build())
+    assert s.task is task and s.gate is not None
+    schema = pipeline.tools_schema(s.tools)
+    assert sorted(f.name for f in schema.standard_tools) == sorted(s.tools)
+
+
+def test_turn_servers_come_from_config():
+    from app.voice import pipeline
+    cfg = Settings(**CFG, turn_ice_urls="turn:a:3478, turns:b:5349", turn_username="u", turn_credential="c")
+    servers = pipeline.ice_servers(cfg)
+    assert servers[0].urls.startswith("stun:") and servers[1].urls == ["turn:a:3478", "turns:b:5349"]
+    assert (servers[1].username, servers[1].credential) == ("u", "c")
+    assert len(pipeline.ice_servers(Settings(**CFG))) == 1
+
+
+@pytest.fixture
+async def client(bus):
+    r = Rig(bus)
+    app.state.voice, app.state.live_calls = r.mgr, r.live
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        yield c, r
+    app.state.voice = app.state.live_calls = None
+
+
+OFFER = {"sdp": "v=0", "type": "offer"}
+
+
+async def test_offer_answers_a_ringing_call_once(client):
+    c, r = client
+    rid = await r.seed()
+    call_id = await r.mgr.start_call(str(rid), r.STEP)
+    ok = await c.post(f"/api/calls/{call_id}/offer", json=OFFER)
+    assert ok.status_code == 200 and ok.json()["type"] == "answer"
+    assert (await c.post(f"/api/calls/{call_id}/offer", json=OFFER)).status_code == 409
+    assert (await c.post("/api/calls/call_nope/offer", json=OFFER)).status_code == 404
+    await r.mgr.finish(r.live.get(call_id))
+
+
+async def test_call_detail_live_then_ended(client):
+    c, r = client
+    rid = await r.seed()
+    call_id = await r.mgr.start_call(str(rid), r.STEP)
+    sess = r.live.get(call_id)
+    sess.transcript.append({"role": "user", "text": "hi"})
+    live = (await c.get(f"/api/calls/{call_id}")).json()
+    assert live["status"] == "ringing" and live["transcript"][0]["text"] == "hi"
+    await r.mgr.finish(sess, no_answer=False)
+    done = (await c.get(f"/api/calls/{call_id}")).json()
+    assert done["status"] == "ended" and done["outcome"] == "needs_human"  # spoke, no hint, low confidence
+    assert (await c.get("/api/calls/call_nope")).status_code == 404
+
+
+async def test_voice_endpoints_report_unconfigured_voice():
+    app.state.voice = None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/api/calls/x/offer", json=OFFER)
+    assert r.status_code == 503 and "not configured" in r.json()["detail"]
