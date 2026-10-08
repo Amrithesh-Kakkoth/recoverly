@@ -5,15 +5,22 @@ services:
       POSTGRES_USER: recoverly
       POSTGRES_PASSWORD: recoverly
       POSTGRES_DB: recoverly
-    ports: ["5432:5432"]
+    ports: ["${DB_PORT:-5432}:5432"]   # set DB_PORT if a local Postgres already uses 5432
     volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recoverly"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
   app:
     build: ./backend
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://recoverly:recoverly@db:5432/recoverly
-    ports: ["8000:8000"]
+    ports: ["${APP_PORT:-8000}:8000"]
     volumes: ["./backend:/srv", "./web:/web"]
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_healthy
 volumes:
   pgdata:

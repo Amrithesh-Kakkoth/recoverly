@@ -32,4 +32,17 @@ needs the affected tables dropped. On boot the app also re-fires due timers, rep
 webhooks and recovers runs whose live call was cut off by the restart.
 
 `make test` runs the suite on in-memory SQLite; `make test-pg` runs the same suite on
-`recoverly_test`. Or `make up` for the Docker Compose stack.
+`recoverly_test`.
+
+### Docker Compose
+
+`make up` builds and starts Postgres 16 and the app (image is about 2.5 GB because of the voice
+stack). If a local Postgres or server already uses the default ports:
+
+```
+DB_PORT=5433 APP_PORT=8001 docker compose up -d --build
+docker compose exec app pytest -q          # the suite, inside the container
+```
+
+Browser calls into a container on Docker Desktop (macOS/Windows) are untested: WebRTC media needs
+UDP reachability, which normally means a TURN server or host networking on a Linux VPS.
