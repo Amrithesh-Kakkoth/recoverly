@@ -51,3 +51,22 @@ async def test_verify_sends_raw_body_unmodified():
     ok = await make(handler).verify_webhook_signature({"paypal-transmission-id": "t"}, raw, "WH")
     assert ok and raw in seen["body"]
     assert json.loads(seen["body"])["webhook_id"] == "WH"
+
+
+async def test_rest_calls_are_logged_with_via_badge():
+    from sqlalchemy import select
+
+    from app.core.db import db
+    from app.payments.models import PayPalOp
+
+    def handler(req):
+        if req.url.path == "/v1/oauth2/token":
+            return httpx.Response(200, json={"access_token": "T", "expires_in": 3600})
+        return httpx.Response(422, json={"details": [{"issue": "ORDER_ALREADY_CAPTURED"}]})
+
+    with pytest.raises(PayPalError):
+        await make(handler).capture("O1", "capture:O1")
+    async with db.session() as s:
+        ops = (await s.scalars(select(PayPalOp))).all()
+    assert [(o.op, o.via, o.status, o.request_id) for o in ops] == [
+        ("capture", "rest", "error:422", "capture:O1")]

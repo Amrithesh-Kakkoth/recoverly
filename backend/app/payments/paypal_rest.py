@@ -5,6 +5,8 @@ import time
 
 import httpx
 
+from app.payments.ops import logged
+
 
 class PayPalError(Exception):
     def __init__(self, status: int, body: dict):
@@ -54,8 +56,13 @@ class PayPalREST:
         self._token_exp = time.monotonic() + int(data.get("expires_in", 300))
         return self._token
 
-    async def _request(self, method: str, path: str, *, request_id: str | None = None,
+    async def _request(self, method: str, path: str, *, op: str, request_id: str | None = None,
                        json_body: dict | None = None, content: bytes | None = None) -> dict:
+        async with logged(op, "rest", request_id):
+            return await self._send(method, path, request_id, json_body, content)
+
+    async def _send(self, method: str, path: str, request_id: str | None,
+                    json_body: dict | None, content: bytes | None) -> dict:
         headers = {"Authorization": f"Bearer {await self._access_token()}",
                    "Content-Type": "application/json"}
         if request_id:
@@ -75,15 +82,16 @@ class PayPalREST:
                 "return_url": return_url, "cancel_url": cancel_url,
                 "user_action": "PAY_NOW", "shipping_preference": "NO_SHIPPING"}}},
         }
-        return await self._request("POST", "/v2/checkout/orders", request_id=request_id,
+        return await self._request("POST", "/v2/checkout/orders", op="create_order",
+                                   request_id=request_id,
                                    json_body=body)
 
     async def get_order(self, order_id: str) -> dict:
-        return await self._request("GET", f"/v2/checkout/orders/{order_id}")
+        return await self._request("GET", f"/v2/checkout/orders/{order_id}", op="get_order")
 
     async def capture(self, order_id: str, request_id: str) -> dict:
         return await self._request("POST", f"/v2/checkout/orders/{order_id}/capture",
-                                   request_id=request_id, json_body={})
+                                   op="capture", request_id=request_id, json_body={})
 
     async def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes,
                                        webhook_id: str) -> bool:
@@ -99,7 +107,7 @@ class PayPalREST:
         })[:-1]
         content = head.encode() + b',"webhook_event":' + raw_body + b"}"
         data = await self._request("POST", "/v1/notifications/verify-webhook-signature",
-                                   content=content)
+                                   op="verify_webhook", content=content)
         return data.get("verification_status") == "SUCCESS"
 
 

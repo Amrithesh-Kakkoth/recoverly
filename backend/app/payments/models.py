@@ -22,3 +22,19 @@ class PaymentObject(Base):
     currency: Mapped[str | None] = mapped_column(String(3))
     raw_json: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PayPalOp(Base):
+    """Every PayPal call, with `via` = agent_toolkit | rest, shown as a badge on the timeline."""
+
+    __tablename__ = "paypal_ops"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    call_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    op: Mapped[str] = mapped_column(String(48))
+    via: Mapped[str] = mapped_column(String(16))
+    request_id: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(32))  # ok | error:<http status>
+    latency_ms: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
