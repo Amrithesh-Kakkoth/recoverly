@@ -147,7 +147,7 @@ class VoiceCallManager:
         tagged = await tag_outcome(
             transcript=sess.transcript, hint=sess.hint, family_paid=paid,
             no_answer=no_answer or not (spoke or paid), transfer_requested=sess.transfer_requested,
-            classify=self.classify)
+            classify=self.classify, service_error=sess.ended_reason == "service_error")
 
         data = {"call_id": sess.call_id, "run_id": sess.run_id, "outcome": tagged.label,
                 "summary": tagged.summary, "overridden_by": tagged.overridden_by,

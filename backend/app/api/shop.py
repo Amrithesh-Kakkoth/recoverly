@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app.api.models import Customer
+from app.core.config import settings
 from app.core.db import db
 from app.detector import service as detector
 from app.payments.service import create_order
@@ -44,4 +45,5 @@ async def checkout(body: CheckoutIn) -> dict:
     await detector.schedule(order_id=order["order_id"], family_id=family_id,
                             customer_id=customer_id, amount=amount)
     return {"customer_id": customer_id, "family_id": family_id, "order_id": order["order_id"],
-            "amount": amount, "approve_url": order["approve_url"]}
+            "amount": amount, "approve_url": order["approve_url"],
+            "abandon_after_seconds": settings.abandon_after_seconds}

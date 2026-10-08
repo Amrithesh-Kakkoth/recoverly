@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     turn_ice_urls: str = ""            # comma-separated, e.g. turn:host:3478
     turn_username: str = ""
     turn_credential: str = ""
+    demo_buyer_email: str = ""        # shown on the demo page for judges (sandbox only)
+    demo_buyer_password: str = ""
 
     @property
     def voice_enabled(self) -> bool:

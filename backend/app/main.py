@@ -1,16 +1,22 @@
 import asyncio
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.calls import router as calls_router
+from app.api.demo import router as demo_router
 from app.api.router import router as api_router
 from app.api.runs import router as runs_router
 from app.api.shop import router as shop_router
-from app.core.config import settings
+from app.core.config import REPO_ROOT, settings
 from app.channels.web_inbox import WebInbox
 from app.core.db import db
 from app.detector.service import AbandonDetector
+from app.journeys.default import ensure_default_journey
 from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
 from app.payments.links import PaymentLinks
@@ -34,6 +40,7 @@ if "sandbox.paypal.com" not in settings.paypal_base_url:
 async def lifespan(_: FastAPI):
     await db.create_all()
     payments.register()
+    await ensure_default_journey()
     channels = {"whatsapp": WebInbox("whatsapp"), "web_inbox": WebInbox()}
     live = LiveCalls()
     live.register_bus()
@@ -64,5 +71,14 @@ app.include_router(api_router)
 app.include_router(shop_router)
 app.include_router(runs_router)
 app.include_router(calls_router)
+app.include_router(demo_router)
+
+_demo = Path(REPO_ROOT) / "web" / "demo"
+if _demo.is_dir():
+    app.mount("/demo", StaticFiles(directory=_demo, html=True), name="demo")
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse("/demo/")
 app.include_router(payments_router)
 app.include_router(webhooks_router)

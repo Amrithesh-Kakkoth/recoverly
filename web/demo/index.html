@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recoverly · Try it</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #14181f; --mute: #667085; --line: #e4e7ec;
+    --accent: #0070e0; --accent-ink: #fff; --ok: #12805c; --ok-bg: #e6f6ef; --warn-bg: #fff4e0;
+    --bubble-bot: #eef2f6; --bubble-me: #dff3e4; --chip: #7a3df0; --chip-bg: #efe8ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --card: #171b22; --ink: #eef1f6; --mute: #9aa4b2; --line: #272d38;
+            --accent: #4da3ff; --accent-ink: #06121f; --ok: #5fd3a4; --ok-bg: #12261f;
+            --warn-bg: #2a2212; --bubble-bot: #212733; --bubble-me: #1c3326; --chip: #c3a6ff; --chip-bg: #2a2142; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0; } h1 span { color: var(--mute); font-weight: 400; }
+  .rail { display: flex; gap: 8px; max-width: 1040px; margin: 8px auto 0; padding: 0 16px; }
+  .rail div { flex: 1; padding: 8px 10px; border-radius: 10px; font-size: 13px; background: var(--card);
+              border: 1px solid var(--line); color: var(--mute); }
+  .rail div b { display: block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+  .rail .active { border-color: var(--accent); color: var(--ink); }
+  .rail .done { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1040px; margin: 16px auto;
+         padding: 0 16px 40px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } .rail div span { display: none; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--mute); margin: 10px 0 4px; }
+  input[type=text], input[type=tel] { width: 100%; padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--ink); margin: 8px 0; }
+  .check input { margin-top: 4px; }
+  button, .btn { display: inline-block; padding: 11px 16px; border-radius: 10px; border: 0; cursor: pointer;
+        background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; text-decoration: none; }
+  button.ghost, .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.big { width: 100%; padding: 16px; font-size: 18px; background: var(--ok); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .hint { color: var(--mute); font-size: 14px; } .err { color: #c0362c; font-size: 14px; margin-top: 8px; }
+  .note { background: var(--warn-bg); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+  .hidden { display: none !important; }
+  .feed { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+  .msg { padding: 8px 12px; border-radius: 12px; max-width: 88%; word-break: break-word; font-size: 15px; }
+  .msg.bot { background: var(--bubble-bot); align-self: flex-start; }
+  .msg.me { background: var(--bubble-me); align-self: flex-end; }
+  .msg small { display: block; color: var(--mute); font-size: 11px; margin-bottom: 2px; }
+  .msg a { color: var(--accent); }
+  .chip { align-self: center; background: var(--chip-bg); color: var(--chip); font-weight: 600; font-size: 13px;
+          padding: 6px 12px; border-radius: 999px; }
+  .tl { list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--mute); max-height: 200px; overflow-y: auto; }
+  .tl li { padding: 3px 0; border-bottom: 1px dashed var(--line); } .tl li time { color: var(--ink); margin-right: 6px; }
+  .big-result { text-align: center; padding: 18px; border-radius: 12px; background: var(--ok-bg); color: var(--ok);
+                font-size: 22px; font-weight: 700; }
+  .big-result.lost { background: var(--warn-bg); color: var(--ink); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--mute); margin-right: 6px; }
+  .dot.live { background: #e5484d; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  code { background: var(--bg); padding: 1px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header><h1>Recoverly <span>· try the recovery flow</span></h1></header>
+
+<div class="rail" id="rail">
+  <div data-s="1"><b>1</b><span>Abandon the cart</span></div>
+  <div data-s="2"><b>2</b><span>Your phone rings</span></div>
+  <div data-s="3"><b>3</b><span>Pay</span></div>
+  <div data-s="4"><b>4</b><span>Recovered</span></div>
+</div>
+
+<main>
+  <section>
+    <!-- Step 1: checkout form -->
+    <div class="card" id="p-form">
+      <h2>Start a checkout</h2>
+      <form id="form">
+        <label for="name">Your name</label><input type="text" id="name" required value="Asha">
+        <label for="phone">Phone (E.164, for the record)</label>
+        <input type="tel" id="phone" required value="+919876543210" pattern="\+[1-9][0-9]{7,14}">
+        <div class="check"><input type="checkbox" id="wa" checked><label for="wa" style="margin:0;color:inherit">Send me WhatsApp reminders</label></div>
+        <div class="check"><input type="checkbox" id="consent" checked><label for="consent" style="margin:0;color:inherit">I agree to receive an AI voice call about my order</label></div>
+        <button id="go">Checkout · Pro plan · $49.00</button>
+        <div class="err hidden" id="form-err"></div>
+      </form>
+    </div>
+
+    <!-- Step 1b: abandon -->
+    <div class="card hidden" id="p-abandon">
+      <h2>Now abandon the cart</h2>
+      <p class="hint">Open the PayPal checkout, then <b>close it without paying</b>.
+         After <span id="count">90</span>s we treat the cart as abandoned and start the recovery journey.</p>
+      <a class="btn" id="open-paypal" target="_blank" rel="noopener">Open PayPal checkout</a>
+    </div>
+
+    <!-- Step 2: waiting / ringing / live -->
+    <div class="card hidden" id="p-wait">
+      <h2>Waiting for the journey…</h2>
+      <p class="hint" id="wait-msg">Cart abandoned. A WhatsApp nudge goes out first, then the agent calls.</p>
+    </div>
+
+    <div class="card hidden" id="p-ring">
+      <h2>📞 Incoming call</h2>
+      <p class="hint">An AI agent is calling about your unfinished order. Allow the microphone when asked.</p>
+      <button class="big" id="answer">Answer</button>
+      <div class="err hidden" id="call-err"></div>
+    </div>
+
+    <div class="card hidden" id="p-live">
+      <h2><span class="dot live"></span><span id="live-status">On the call</span></h2>
+      <p class="hint">Ask for the payment link, then pay it from the thread. When the payment lands,
+         the agent will tell you out loud.</p>
+      <button class="ghost" id="hangup">Hang up</button>
+    </div>
+
+    <div class="card hidden" id="p-result"><div class="big-result" id="result"></div>
+      <p class="hint" id="result-sub" style="text-align:center"></p></div>
+
+    <div class="card hidden" id="p-buyer" style="margin-top:16px">
+      <h2>Paying in the sandbox</h2>
+      <p class="hint">Log in to PayPal with this test buyer. Nothing is charged.</p>
+      <p>Email <code id="buyer-email"></code><br>Password <code id="buyer-pass"></code></p>
+    </div>
+    <div class="note hidden" id="voice-note">Voice isn't configured on this server (no API keys), so the call is simulated and won't ring.</div>
+  </section>
+
+  <section style="display:grid;gap:16px;align-content:start">
+    <div class="card"><h2>WhatsApp (simulated)</h2><div class="feed" id="thread"><span class="hint">No messages yet.</span></div></div>
+    <div class="card"><h2>Call transcript</h2><div class="feed" id="transcript"><span class="hint">The call hasn't started.</span></div></div>
+    <div class="card"><h2>Timeline</h2><ul class="tl" id="timeline"></ul></div>
+  </section>
+</main>
+<audio id="remote" autoplay playsinline></audio>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const show = (id, on = true) => $(id).classList.toggle("hidden", !on);
+const S = { family: null, runId: null, callId: null, pc: null, poll: null, streams: [], ringing: false,
+            lastTranscript: -1, done: false };
+
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${r.status}`);
+  return body;
+};
+
+function setRail(step, doneUpTo) {
+  document.querySelectorAll("#rail div").forEach((d) => {
+    const n = +d.dataset.s;
+    d.className = n <= doneUpTo ? "done" : n === step ? "active" : "";
+  });
+}
+
+function listen(url, handlers) {
+  const es = new EventSource(url);
+  for (const [name, fn] of Object.entries(handlers)) es.addEventListener(name, (e) => fn(JSON.parse(e.data)));
+  S.streams.push(es);
+  return es;
+}
+
+/* ---------- rendering ---------- */
+function linkify(text, into) {
+  for (const part of text.split(/(https:\/\/\S+)/g)) {
+    if (/^https:\/\//.test(part)) {
+      const a = document.createElement("a");
+      a.href = part; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open payment link";
+      into.appendChild(a);
+    } else if (part) into.appendChild(document.createTextNode(part));
+  }
+}
+const seenMsgs = new Set();
+function addMessage(m) {
+  if (seenMsgs.has(m.id)) return;
+  seenMsgs.add(m.id);
+  const feed = $("#thread");
+  if (!feed.querySelector(".msg")) feed.textContent = "";
+  const el = document.createElement("div"); el.className = "msg bot";
+  const small = document.createElement("small"); small.textContent = "Store · " + m.channel; el.appendChild(small);
+  linkify(m.body, el); feed.appendChild(el); feed.scrollTop = feed.scrollHeight;
+}
+const LABEL = {
+  "run.started": () => "Journey started", "step.entered": null,
+  "message.sent": (p) => `Message sent (${p.channel})`, "wait.started": () => "Waiting before the call",
+  "call.dialed": () => "Calling you", "call.deferred": () => "Call deferred (outside call window)",
+  "call.skipped": (p) => `Call skipped (${p.reason})`, "call.retry_scheduled": () => "No answer, will retry",
+  "call.completed": (p) => `Call finished: ${p.outcome}`,
+  "event.payment_captured": (p) => `PayPal: payment captured $${p.amount}`,
+  "run.ended": (p) => `Journey ended: ${p.result}`,
+};
+const seenTl = new Set();
+function addTimeline(e) {
+  if (seenTl.has(e.id)) return;
+  seenTl.add(e.id);
+  const f = LABEL[e.kind]; if (!f) return;
+  const li = document.createElement("li");
+  const t = document.createElement("time");
+  t.textContent = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(e.ts) ? e.ts : e.ts + "Z").toLocaleTimeString();
+  li.append(t, document.createTextNode(f(e.payload || {}))); $("#timeline").appendChild(li);
+  $("#timeline").scrollTop = 1e6;
+  if (e.kind === "run.ended") onRunEnded(e.payload.result);
+}
+function renderTranscript(items) {
+  if (items.length === S.lastTranscript) return;
+  S.lastTranscript = items.length;
+  const feed = $("#transcript"); feed.textContent = "";
+  if (!items.length) { const h = document.createElement("span"); h.className = "hint";
+    h.textContent = "No conversation was captured."; feed.appendChild(h); return; }
+  for (const m of items) {
+    const el = document.createElement("div");
+    if (m.role === "event") { el.className = "chip"; el.textContent = "⚡ PayPal · " + m.text; }
+    else { el.className = "msg " + (m.role === "user" ? "me" : "bot");
+           const s = document.createElement("small"); s.textContent = m.role === "user" ? "You" : "Maya (AI)";
+           el.append(s, document.createTextNode(m.text)); }
+    feed.appendChild(el);
+  }
+  feed.scrollTop = feed.scrollHeight;
+}
+
+/* ---------- flow ---------- */
+$("#form").addEventListener("submit", async (ev) => {
+  ev.preventDefault(); show("#form-err", false); $("#go").disabled = true;
+  try {
+    const r = await api("/shop/checkout", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: $("#name").value, phone: $("#phone").value, sku: "pro-plan",
+                             whatsapp_optin: $("#wa").checked, call_consent: $("#consent").checked }) });
+    S.family = r.family_id; $("#open-paypal").href = r.approve_url;
+    show("#p-form", false); show("#p-abandon"); setRail(1, 0);
+    let left = Math.round(r.abandon_after_seconds); $("#count").textContent = left;
+    const t = setInterval(() => { left = Math.max(0, left - 1); $("#count").textContent = left;
+                                  if (left === 0) { clearInterval(t); show("#p-abandon", false); show("#p-wait"); setRail(2, 1); } }, 1000);
+    waitForRun();
+  } catch (e) { $("#form-err").textContent = e.message; show("#form-err"); $("#go").disabled = false; }
+});
+
+function waitForRun() {   // since=0 replays the buffer, so a run that started early isn't missed
+  const es = listen("/api/stream/global?since=0", {
+    "run.started": (d) => { if (d.payload.family_id === S.family && !S.runId) { es.close(); attachRun(d.run_id); } },
+  });
+}
+
+async function attachRun(runId) {
+  S.runId = runId; show("#p-abandon", false); show("#p-wait"); setRail(2, 1);
+  const snap = await api(`/api/runs/${runId}`);
+  snap.messages.forEach(addMessage); snap.timeline.forEach(addTimeline);
+  listen(`/api/stream/run:${runId}?since=${snap.last_event_id}`, {
+    timeline: addTimeline, message: addMessage,
+    "call.ringing": (d) => onRinging(d.call_id),
+    "call.ended": () => { stopCall("ended"); },
+  });
+  // catch a call that started before we subscribed
+  const dialed = [...snap.timeline].reverse().find((e) => e.kind === "call.dialed");
+  const finished = snap.timeline.some((e) => e.kind === "call.completed");
+  if (dialed && !finished) {
+    const c = await api(`/api/calls/${dialed.payload.call_id}`).catch(() => null);
+    if (c && c.status === "ringing") onRinging(dialed.payload.call_id);
+  }
+  if (snap.close_reason) onRunEnded(snap.close_reason);
+}
+
+function onRinging(callId) {
+  if (S.callId === callId) return;
+  S.callId = callId; show("#p-wait", false); show("#p-ring"); setRail(2, 1);
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
+
+$("#answer").addEventListener("click", async () => {
+  show("#call-err", false); $("#answer").disabled = true;
+  try {
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const { iceServers } = await api("/api/ice");
+    const pc = new RTCPeerConnection({ iceServers }); S.pc = pc;
+    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+    pc.ontrack = (e) => { $("#remote").srcObject = e.streams[0]; };
+    pc.onconnectionstatechange = () => {
+      $("#live-status").textContent = { connected: "On the call", connecting: "Connecting…",
+        failed: "Connection failed", disconnected: "Reconnecting…" }[pc.connectionState] || "On the call";
+      if (pc.connectionState === "failed") { $("#call-err").textContent = "Couldn't connect audio. A TURN server may be needed on this network."; show("#call-err"); }
+    };
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((res) => { if (pc.iceGatheringState === "complete") return res();
+      pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && res(); setTimeout(res, 3000); });
+    const ans = await api(`/api/calls/${S.callId}/offer`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }) });
+    await pc.setRemoteDescription({ sdp: ans.sdp, type: ans.type });
+    show("#p-ring", false); show("#p-live"); setRail(3, 2); startPolling();
+  } catch (e) {
+    $("#call-err").textContent = e.name === "NotAllowedError" ? "Microphone access was blocked. Allow it and try again." : e.message;
+    show("#call-err"); $("#answer").disabled = false;
+  }
+});
+
+function startPolling() {
+  const tick = async () => {
+    try { const c = await api(`/api/calls/${S.callId}`); renderTranscript(c.transcript || []);
+          if (c.status === "ended") stopCall("ended"); } catch (_) {}
+  };
+  tick(); S.poll = setInterval(tick, 1000);
+}
+function stopCall(why) {
+  clearInterval(S.poll); S.poll = null;
+  if (S.pc) { S.pc.close(); S.pc = null; }
+  if (S.callId) api(`/api/calls/${S.callId}`).then((c) => renderTranscript(c.transcript || [])).catch(() => {});
+  show("#p-live", false); show("#p-ring", false);
+  if (!S.done) show("#p-wait");
+  $("#wait-msg").textContent = "Call finished. Finalising…";
+}
+$("#hangup").addEventListener("click", () => { if (S.pc) S.pc.close(); S.pc = null; stopCall("hangup"); });
+
+function onRunEnded(result) {
+  if (S.done) return; S.done = true; stopCall("done");
+  show("#p-wait", false); show("#p-result");
+  const won = result === "recovered";
+  $("#result").className = "big-result" + (won ? "" : " lost");
+  $("#result").textContent = won ? "Recovered $49" : "Not recovered";
+  $("#result-sub").textContent = won ? "The payment landed during the call and the journey closed." : "The customer didn't pay this time.";
+  setRail(4, won ? 4 : 3);
+  if (!won) document.querySelector('#rail div[data-s="4"] span').textContent = "Not recovered";
+}
+
+/* ---------- boot ---------- */
+(async () => {
+  setRail(1, 0);
+  try {
+    const cfg = await api("/api/demo-config");
+    if (!cfg.voice_enabled) show("#voice-note");
+    if (cfg.buyer) { $("#buyer-email").textContent = cfg.buyer.email; $("#buyer-pass").textContent = cfg.buyer.password; show("#p-buyer"); }
+  } catch (_) {}
+})();
+</script>
+</body>
+</html>

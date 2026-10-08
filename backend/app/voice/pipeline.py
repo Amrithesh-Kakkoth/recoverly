@@ -15,7 +15,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (LLMContextAggregatorPair,
                                                                     LLMUserAggregatorParams)
@@ -141,7 +141,9 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
     tap = CallTap(session, gate)
     pipeline = Pipeline([transport.input(), stt, agg.user(), llm, tap, tts, transport.output(),
                          agg.assistant()])
-    task = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True))
+    # A dead STT / LLM / TTS (bad key, outage) must end the call now, not sit silent until the cap.
+    task = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True),
+                          processor_unusable_policy=ProcessorUnusablePolicy.CANCEL)
     gate_push_task["task"] = task
     session.task = task
 
@@ -154,6 +156,11 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
     async def _disconnected(_t, _c):
         session.ended_reason = session.ended_reason or "client_left"
         await task.cancel()
+
+    @task.event_handler("on_pipeline_error")
+    async def _errored(_task, frame):
+        if frame.processor is not None and not frame.processor.is_usable:
+            session.ended_reason = "service_error"
 
     @agg.user().event_handler("on_user_turn_idle")
     async def _idle(_agg):

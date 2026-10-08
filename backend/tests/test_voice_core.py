@@ -269,3 +269,12 @@ def test_prompt_layers():
                    "[PAYPAL EVENT]", "end_call"):
         assert needle in p
     assert "may not offer any discount" in build_prompt(session(offer_max_pct=0))
+
+
+async def test_a_dead_service_is_needs_human_not_no_answer_unless_they_paid():
+    kw = dict(transcript=[], hint=None, no_answer=True, transfer_requested=False, classify=None,
+              service_error=True)
+    t = await tag_outcome(family_paid=False, **kw)
+    assert (t.label, t.overridden_by) == ("needs_human", "service_error")
+    t = await tag_outcome(family_paid=True, **kw)            # payment still wins
+    assert (t.label, t.overridden_by) == ("paid", "family_paid")

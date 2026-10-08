@@ -23,7 +23,7 @@ class Tagged:
 
 async def tag_outcome(*, transcript: list[dict], hint: str | None, family_paid: bool,
                       no_answer: bool, transfer_requested: bool,
-                      classify: Classifier | None) -> Tagged:
+                      classify: Classifier | None, service_error: bool = False) -> Tagged:
     raw = {"label": hint if hint in LABELS else "needs_human", "confidence": 0.5 if not hint else 0.8,
            "summary": "", "objections": []}
     if classify and transcript and not no_answer:
@@ -35,6 +35,8 @@ async def tag_outcome(*, transcript: list[dict], hint: str | None, family_paid: 
     t = Tagged(label, float(raw["confidence"]), raw.get("summary", ""), list(raw.get("objections", [])))
     if family_paid:
         t.label, t.overridden_by = "paid", "family_paid"
+    elif service_error:  # our STT/LLM/TTS died: not the customer's fault, a human should follow up
+        t.label, t.overridden_by = "needs_human", "service_error"
     elif no_answer:
         t.label, t.overridden_by = "no_answer", "no_answer"
     elif transfer_requested:

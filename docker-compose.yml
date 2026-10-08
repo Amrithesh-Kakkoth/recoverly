@@ -13,7 +13,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://recoverly:recoverly@db:5432/recoverly
     ports: ["8000:8000"]
-    volumes: ["./backend:/srv"]
+    volumes: ["./backend:/srv", "./web:/web"]
     depends_on: [db]
 volumes:
   pgdata:
