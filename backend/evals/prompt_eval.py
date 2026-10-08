@@ -8,6 +8,7 @@ the behaviour. Run a variant and compare:
     python -m evals.prompt_eval v2          # what the app currently ships
     python -m evals.prompt_eval compare     # table from saved results
     python -m evals.prompt_eval v2 1 --budget=120000 --fresh
+    python -m evals.prompt_eval v2 1 --only=stop_calling,bad_time   # re-test a few scenarios cheaply
 
 One pass of all scenarios costs roughly 100k tokens with the current prompt, so a run stops at a
 token budget (default 60k). On Groq's free tier the model has a 200k tokens/day cap that live
@@ -312,7 +313,10 @@ async def run(name: str, runs: int) -> None:
     v, llm = variant(name), LLM(budget)
     path = RESULTS / f"{name}.json"   # passes accumulate, so samples can be added over time
     out = json.loads(path.read_text()) if path.exists() and "--fresh" not in sys.argv else {}
+    only = next((a.split("=")[1].split(",") for a in sys.argv if a.startswith("--only=")), None)
     for sc, (steps, _) in SCENARIOS.items():
+        if only and sc not in only:
+            continue
         out.setdefault(sc, [])
         for i in range(runs):
             rec = await play(llm, v, steps)
