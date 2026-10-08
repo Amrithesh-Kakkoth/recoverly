@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     public_base_url: str = "http://localhost:8000"
     time_scale: float = 1.0
+    abandon_after_seconds: float = 900.0  # real time; set 90 for the demo
     kill_switch: bool = False
 
 

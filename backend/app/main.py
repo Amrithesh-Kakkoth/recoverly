@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.router import router as api_router
+from app.api.shop import router as shop_router
 from app.core.config import settings
 from app.channels.web_inbox import WebInbox
 from app.core.db import db
+from app.detector.service import AbandonDetector
 from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
 from app.payments.links import PaymentLinks
@@ -32,13 +34,17 @@ async def lifespan(_: FastAPI):
     engine.register()
     timers = TimerLoop(engine)
     loop_task = asyncio.create_task(timers.run())
+    detector = AbandonDetector()
+    detector_task = asyncio.create_task(detector.run())
     await reprocess_pending()
     yield
     timers.stop()
-    await loop_task
+    detector.stop()
+    await asyncio.gather(loop_task, detector_task)
 
 
 app = FastAPI(title="Recoverly", lifespan=lifespan)
 app.include_router(api_router)
+app.include_router(shop_router)
 app.include_router(payments_router)
 app.include_router(webhooks_router)
