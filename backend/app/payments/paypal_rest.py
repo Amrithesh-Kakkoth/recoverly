@@ -17,6 +17,10 @@ class PayPalError(Exception):
         return {d.get("issue", "") for d in self.body.get("details", [])}
 
     @property
+    def not_approved(self) -> bool:
+        return self.status == 422 and "ORDER_NOT_APPROVED" in self.issues
+
+    @property
     def already_captured(self) -> bool:
         return self.status == 422 and "ORDER_ALREADY_CAPTURED" in self.issues
 

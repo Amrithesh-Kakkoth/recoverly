@@ -42,7 +42,7 @@ async def create_order(family_id: str, amount: str, currency: str = "USD", *,
 
 
 async def capture_once(order_id: str, *, gateway=None, event_bus: EventBus | None = None) -> str:
-    """Returns: captured | family_already_paid | not_completed | unknown_order.
+    """Returns: captured | family_already_paid | not_approved | not_completed | unknown_order.
 
     Under the family lock: skip if the family already has a COMPLETED capture, else capture
     with a stable PayPal-Request-Id, treat ORDER_ALREADY_CAPTURED as success (read the order),
@@ -66,6 +66,8 @@ async def capture_once(order_id: str, *, gateway=None, event_bus: EventBus | Non
             try:
                 data = await gw.capture(order_id, request_id=f"capture:{order_id}")
             except PayPalError as e:
+                if e.not_approved:
+                    return "not_approved"
                 if not e.already_captured:
                     raise
                 data = await gw.get_order(order_id)

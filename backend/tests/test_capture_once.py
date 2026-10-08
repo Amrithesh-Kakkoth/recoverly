@@ -60,3 +60,14 @@ async def test_non_completed_capture_is_not_paid(gw, bus):
 async def test_unknown_order_is_never_captured(gw, bus):
     assert await capture_once("NOPE", event_bus=bus) == "unknown_order"
     assert gw.capture_calls == []
+
+
+async def test_unapproved_order_returns_not_approved_without_raising(gw, bus):
+    from app.payments.paypal_rest import PayPalError
+
+    async def capture(order_id, request_id):
+        raise PayPalError(422, {"details": [{"issue": "ORDER_NOT_APPROVED"}]})
+
+    gw.capture = capture
+    o = await create_order("F1", "49.00")
+    assert await capture_once(o["order_id"], event_bus=bus) == "not_approved"
