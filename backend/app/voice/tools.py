@@ -21,57 +21,33 @@ INTERNAL_KEYS = {"order_id"}  # never shown to the model: it must not read ids a
 
 
 def tool_specs(session: CallSession) -> dict[str, dict]:
-    """Tool descriptions the model sees, for this call. Each says what the tool does, when to use
-    it, when not to, and what the result means. Built per session so the discount limit is stated
-    as a number and tools that cannot be used on this call are simply absent."""
+    """Tool descriptions the model sees, for this call: what each tool does and when to use it,
+    kept short because they are resent on every turn. What to do *after* a tool runs is carried by
+    the result's `note`, which costs tokens only when the tool is actually called. Built per session
+    so the discount limit is a number and tools that cannot be used on this call are absent."""
     n = f"{session.offer_max_pct:g}"
     specs: dict[str, dict] = {
         "send_payment_link": {
-            "description": (
-                "Send the secure PayPal payment link for this order to the customer's WhatsApp, at "
-                "the current price. Use it only after the customer has agreed to receive the link. "
-                "If they say it did not arrive, call it again: it resends the same link. After it "
-                "succeeds, tell the customer the link is on their WhatsApp and offer to stay on the "
-                "line while they pay. Never read the link aloud."),
+            "description": ("Send the PayPal link for this order to the customer's WhatsApp at the "
+                            "current price, once they agree. Call again to resend."),
             "properties": {}, "required": []},
         "check_payment_status": {
-            "description": (
-                "Look up whether this order has been paid. Use it when the customer says they have "
-                "paid, or asks whether it went through, and you have not received a [PAYPAL EVENT] "
-                "confirming it. Returns status 'paid' (money received: thank them and end the call), "
-                "'approved' (they approved it in PayPal and it is being finalised: ask them to hold "
-                "on a few seconds, then check once more) or 'unpaid' (nothing received yet: say you "
-                "do not see it yet and offer to wait). You do not need to poll: payments are also "
-                "reported to you automatically."),
+            "description": ("Check if the order is paid, when the customer says they paid and no "
+                            "[PAYPAL EVENT] confirmed it. Returns paid, approved or unpaid."),
             "properties": {}, "required": []},
         "apply_offer": {
-            "description": (
-                f"Reduce the price of this order by a percentage, from 1 to {n}. Use it only when the "
-                "customer has said the price is the problem and has accepted a discount you offered. "
-                "It does not send anything to the customer: it returns the new price, which you tell "
-                "them, and then you call send_payment_link to send the link at that price. Requests "
-                f"above {n} percent are refused."),
-            "properties": {"pct": {"type": "number", "minimum": 1, "maximum": session.offer_max_pct,
-                                   "description": f"Discount percent, between 1 and {n}."}},
+            "description": (f"Lower the price by a percentage from 1 to {n} after the customer accepts a "
+                            "discount. Sends nothing; returns the new price."),
+            "properties": {"pct": {"type": "number", "minimum": 1, "maximum": session.offer_max_pct}},
             "required": ["pct"]},
         "end_call": {
-            "description": (
-                "Hang up. This must be the last thing you do, in the same turn as your spoken "
-                "goodbye: the line closes immediately and nothing after it is heard."),
+            "description": "Hang up, in the same turn as your goodbye.",
             "properties": {"outcome_hint": {
                 "type": "string",
-                "enum": ["paid", "promised_to_pay", "declined", "callback_requested", "needs_human"],
-                "description": (
-                    "How the call ended. paid: a [PAYPAL EVENT] or check_payment_status confirmed "
-                    "the payment. promised_to_pay: they said they will pay later. declined: they do "
-                    "not want the order or asked not to be called. callback_requested: it was a bad "
-                    "time. needs_human: they asked for a person, or needed something you could not do.")}},
+                "enum": ["paid", "promised_to_pay", "declined", "callback_requested", "needs_human"]}},
             "required": ["outcome_hint"]},
         "transfer_to_human": {
-            "description": (
-                "Flag this customer for a human colleague to follow up. It does not connect anyone "
-                "live. Use it when the customer asks for a person or needs something you cannot do, "
-                "then tell them a colleague will get in touch and end the call as needs_human."),
+            "description": "Flag this customer for a human colleague to follow up. No live transfer.",
             "properties": {}, "required": []},
     }
     usable = [t for t in session.tools if t in specs]

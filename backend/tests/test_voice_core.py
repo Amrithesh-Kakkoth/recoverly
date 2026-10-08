@@ -300,7 +300,7 @@ def test_tool_specs_are_per_call_and_explain_themselves():
     assert "from 1 to 10" in specs["apply_offer"]["description"]
     assert specs["apply_offer"]["properties"]["pct"]["maximum"] == 10.0
     assert "offer_pct" not in specs["send_payment_link"]["properties"]   # one clear way to discount
-    for word in ("unpaid", "approved", "paid"):                           # result meanings are documented
+    for word in ("unpaid", "approved", "paid"):                           # possible results are named
         assert word in specs["check_payment_status"]["description"]
     assert "same turn" in specs["end_call"]["description"]
     assert "apply_offer" not in tool_specs(session(offer_max_pct=0))      # unusable tools aren't shown
@@ -336,3 +336,15 @@ async def test_classifier_cannot_call_an_answered_call_no_answer():
     t = await tag_outcome(transcript=[{"role": "assistant", "text": "Hi"}], hint=None, family_paid=False,
                           no_answer=False, transfer_requested=False, classify=await classify("no_answer", 0.95))
     assert t.label == "no_answer"
+
+
+def test_prompt_and_tools_fit_the_per_turn_token_budget():
+    """Regression from the first real call on a long brief: ~1,600 tokens resent every turn blew the
+    provider's 8,000 tokens/minute limit and replies stalled for 5-13 s. Estimate: 4 chars/token."""
+    import json
+
+    from app.voice.tools import tool_specs
+    s = session()
+    schema = [{"name": n, **spec} for n, spec in tool_specs(s).items()]
+    tokens = (len(build_prompt(s, "Northwind Store")) + len(json.dumps(schema))) / 4
+    assert tokens <= 800, f"per-turn overhead is ~{tokens:.0f} tokens; trim before shipping"

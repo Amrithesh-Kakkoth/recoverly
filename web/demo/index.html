@@ -59,6 +59,7 @@
   .big-result.lost { background: var(--warn-bg); color: var(--ink); }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--mute); margin-right: 6px; }
   .dot.live { background: #e5484d; animation: pulse 1.2s infinite; }
+  .dot.on { background: var(--ok); }
   @keyframes pulse { 50% { opacity: .35; } }
   code { background: var(--bg); padding: 1px 6px; border-radius: 6px; }
 </style>
@@ -106,6 +107,7 @@
     <div class="card hidden" id="p-ring">
       <h2>📞 Incoming call</h2>
       <p class="hint">An AI agent is calling about your unfinished order. Allow the microphone when asked.</p>
+      <div class="check"><input type="checkbox" id="gate"><label for="gate" style="margin:0;color:inherit">Send my audio only while I'm speaking <span class="hint">(experimental: cuts speaker echo)</span></label></div>
       <button class="big" id="answer">Answer</button>
       <div class="err hidden" id="call-err"></div>
     </div>
@@ -114,6 +116,7 @@
       <h2><span class="dot live"></span><span id="live-status">On the call</span></h2>
       <p class="hint">Ask for the payment link, then pay it from the thread. When the payment lands,
          the agent will tell you out loud.</p>
+      <p class="hint hidden" id="mic-line"><span class="dot" id="mic-dot"></span><span id="mic-text">Mic idle</span></p>
       <button class="ghost" id="hangup">Hang up</button>
     </div>
 
@@ -222,6 +225,62 @@ function renderTranscript(items) {
   feed.scrollTop = feed.scrollHeight;
 }
 
+/* ---------- browser-side voice gate (opt-in) ----------
+   Sends microphone audio only while the user is speaking. The audio that is sent is a 120 ms
+   delayed copy, and speech is detected on the live signal, so the gate opens before the first
+   syllable arrives (no clipping). It stays open ~1 s after speech ends so the server's turn
+   detection still hears the trailing silence. While Maya is talking the trigger level is raised,
+   so her own voice from the speakers does not open the gate. Closed = track detached, no packets. */
+const PREROLL = 0.12, HANG = 0.9;
+const GATE_WORKLET = `
+class Gate extends AudioWorkletProcessor {
+  constructor() { super(); this.floor = 0.003; this.speech = true; this.last = currentTime; this.boost = 1;
+                  this.port.onmessage = (e) => { this.boost = e.data.boost; }; }
+  process(inputs) {
+    const ch = inputs[0][0]; if (!ch) return true;
+    let sum = 0; for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+    const rms = Math.sqrt(sum / ch.length);
+    if (!this.speech) this.floor = Math.min(0.02, this.floor * 0.995 + rms * 0.005);  // background level
+    const threshold = Math.max(0.012, this.floor * 3) * this.boost;
+    if (rms > threshold) { this.last = currentTime; if (!this.speech) { this.speech = true; this.port.postMessage({ speech: true }); } }
+    else if (this.speech && currentTime - this.last > ${HANG + PREROLL}) { this.speech = false; this.port.postMessage({ speech: false }); }
+    return true;
+  }
+}
+registerProcessor("gate", Gate);`;
+
+async function attachGatedMic(mic, pc) {
+  const ctx = new AudioContext(); S.audioCtx = ctx;
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([GATE_WORKLET], { type: "application/javascript" })));
+  const src = ctx.createMediaStreamSource(mic);
+  const delay = ctx.createDelay(1); delay.delayTime.value = PREROLL;
+  const out = ctx.createMediaStreamDestination(); src.connect(delay).connect(out);
+  const gate = new AudioWorkletNode(ctx, "gate"); src.connect(gate);
+  const silent = ctx.createGain(); silent.gain.value = 0; gate.connect(silent).connect(ctx.destination);  // keeps it running
+  const track = out.stream.getAudioTracks()[0];
+  const sender = pc.addTrack(track, out.stream);
+  S.gate = { open: true, opens: 0, closes: 0 };
+  show("#mic-line"); setMic(true);
+  gate.port.onmessage = (e) => {
+    S.gate.open = e.data.speech; e.data.speech ? S.gate.opens++ : S.gate.closes++;
+    sender.replaceTrack(e.data.speech ? track : null).catch(() => {});
+    setMic(e.data.speech);
+  };
+  S.gateNode = gate;
+}
+function setMic(on) { $("#mic-dot").classList.toggle("on", on); $("#mic-text").textContent = on ? "Mic sending" : "Mic idle"; }
+function watchRemote(stream) {   // raise the trigger level while Maya is audible
+  if (!S.gateNode || !S.audioCtx) return;
+  const an = S.audioCtx.createAnalyser(); an.fftSize = 512;
+  S.audioCtx.createMediaStreamSource(stream).connect(an);
+  const buf = new Float32Array(an.fftSize);
+  S.remoteTimer = setInterval(() => {
+    an.getFloatTimeDomainData(buf);
+    let sum = 0; for (const v of buf) sum += v * v;
+    S.gateNode.port.postMessage({ boost: Math.sqrt(sum / buf.length) > 0.01 ? 2.5 : 1 });
+  }, 100);
+}
+
 /* ---------- flow ---------- */
 $("#form").addEventListener("submit", async (ev) => {
   ev.preventDefault(); show("#form-err", false); $("#go").disabled = true;
@@ -275,8 +334,10 @@ $("#answer").addEventListener("click", async () => {
     const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     const { iceServers } = await api("/api/ice");
     const pc = new RTCPeerConnection({ iceServers }); S.pc = pc;
-    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
-    pc.ontrack = (e) => { $("#remote").srcObject = e.streams[0]; };
+    S.mic = mic;
+    if ($("#gate").checked) await attachGatedMic(mic, pc);
+    else mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+    pc.ontrack = (e) => { $("#remote").srcObject = e.streams[0]; watchRemote(e.streams[0]); };
     pc.onconnectionstatechange = () => {
       $("#live-status").textContent = { connected: "On the call", connecting: "Connecting…",
         failed: "Connection failed", disconnected: "Reconnecting…" }[pc.connectionState] || "On the call";
@@ -305,6 +366,9 @@ function startPolling() {
 function stopCall(why) {
   clearInterval(S.poll); S.poll = null;
   if (S.pc) { S.pc.close(); S.pc = null; }
+  clearInterval(S.remoteTimer);
+  if (S.audioCtx) { S.audioCtx.close().catch(() => {}); S.audioCtx = null; S.gateNode = null; }
+  if (S.mic) { S.mic.getTracks().forEach((t) => t.stop()); S.mic = null; }   // release the microphone
   if (S.callId) api(`/api/calls/${S.callId}`).then((c) => renderTranscript(c.transcript || [])).catch(() => {});
   show("#p-live", false); show("#p-ring", false);
   if (!S.done) show("#p-wait");
