@@ -107,7 +107,7 @@
     <div class="card hidden" id="p-ring">
       <h2>📞 Incoming call</h2>
       <p class="hint">An AI agent is calling about your unfinished order. Allow the microphone when asked.</p>
-      <div class="check"><input type="checkbox" id="gate"><label for="gate" style="margin:0;color:inherit">Send my audio only while I'm speaking <span class="hint">(experimental: cuts speaker echo)</span></label></div>
+      <div class="check"><input type="checkbox" id="gate"><label for="gate" style="margin:0;color:inherit">Mute my microphone when I'm not speaking <span class="hint">(experimental: cuts speaker echo)</span></label></div>
       <button class="big" id="answer">Answer</button>
       <div class="err hidden" id="call-err"></div>
     </div>
@@ -230,7 +230,9 @@ function renderTranscript(items) {
    delayed copy, and speech is detected on the live signal, so the gate opens before the first
    syllable arrives (no clipping). It stays open ~1 s after speech ends so the server's turn
    detection still hears the trailing silence. While Maya is talking the trigger level is raised,
-   so her own voice from the speakers does not open the gate. Closed = track detached, no packets. */
+   so her own voice from the speakers does not open the gate. Closed = digital silence. The track
+   is never detached: detaching makes the browser signal end-of-stream, and the server then stops
+   reading audio for the rest of the call. */
 const PREROLL = 0.12, HANG = 0.9;
 const GATE_WORKLET = `
 class Gate extends AudioWorkletProcessor {
@@ -254,16 +256,16 @@ async function attachGatedMic(mic, pc) {
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([GATE_WORKLET], { type: "application/javascript" })));
   const src = ctx.createMediaStreamSource(mic);
   const delay = ctx.createDelay(1); delay.delayTime.value = PREROLL;
-  const out = ctx.createMediaStreamDestination(); src.connect(delay).connect(out);
+  const valve = ctx.createGain(); valve.gain.value = 1;
+  const out = ctx.createMediaStreamDestination(); src.connect(delay).connect(valve).connect(out);
   const gate = new AudioWorkletNode(ctx, "gate"); src.connect(gate);
   const silent = ctx.createGain(); silent.gain.value = 0; gate.connect(silent).connect(ctx.destination);  // keeps it running
-  const track = out.stream.getAudioTracks()[0];
-  const sender = pc.addTrack(track, out.stream);
+  pc.addTrack(out.stream.getAudioTracks()[0], out.stream);
   S.gate = { open: true, opens: 0, closes: 0 };
   show("#mic-line"); setMic(true);
   gate.port.onmessage = (e) => {
     S.gate.open = e.data.speech; e.data.speech ? S.gate.opens++ : S.gate.closes++;
-    sender.replaceTrack(e.data.speech ? track : null).catch(() => {});
+    valve.gain.setTargetAtTime(e.data.speech ? 1 : 0, ctx.currentTime, 0.005);   // 5 ms ramp, no click
     setMic(e.data.speech);
   };
   S.gateNode = gate;

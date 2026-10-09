@@ -348,3 +348,26 @@ def test_prompt_and_tools_fit_the_per_turn_token_budget():
     schema = [{"name": n, **spec} for n, spec in tool_specs(s).items()]
     tokens = (len(build_prompt(s, "Northwind Store")) + len(json.dumps(schema))) / 4
     assert tokens <= 800, f"per-turn overhead is ~{tokens:.0f} tokens; trim before shipping"
+
+
+async def test_pay_link_is_delivered_once_on_the_main_channel():
+    from app.voice.tools import PaymentDeps
+
+    class Ch:
+        def __init__(self):
+            self.n = 0
+
+        async def send(self, *a):
+            self.n += 1
+
+    wa, inbox = Ch(), Ch()
+    await PaymentDeps({"whatsapp": wa, "web_inbox": inbox}).deliver(session(), "pay_link", {})
+    assert (wa.n, inbox.n) == (1, 0)
+    await PaymentDeps({"web_inbox": inbox}).deliver(session(), "pay_link", {})
+    assert inbox.n == 1
+
+
+def test_one_word_answers_can_interrupt():
+    """Regression: with a two-word minimum, "Yes" said while the agent was finishing was dropped."""
+    from app.voice import pipeline
+    assert pipeline.INTERRUPT_MIN_WORDS == 1

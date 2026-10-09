@@ -37,7 +37,10 @@ from app.voice.tools import ToolBox, VoiceDeps, for_llm, tool_specs
 
 log = logging.getLogger(__name__)
 
-INTERRUPT_MIN_WORDS = 2
+# Words the customer must say to interrupt Maya while she is speaking. One, deliberately: a turn
+# still needs a real transcribed word (so noise alone can't interrupt), but with two, a customer
+# answering "Yes" or "Okay" just before she finished was discarded outright (real call, 2026-10-09).
+INTERRUPT_MIN_WORDS = 1
 OPENING = "The customer has just answered the call. Begin with your opening line."
 
 
@@ -107,7 +110,7 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
         vad_analyzer=SileroVADAnalyzer(), user_idle_timeout=cfg.silence_timeout_seconds,
         # Real-call lessons: speaker echo and noise were chopping Maya's replies to one word.
         # 1) the opening line can't be interrupted, 2) nor can she be mid tool call, and
-        # 3) a single stray word doesn't count as an interruption while she is talking.
+        # 3) a turn starts on transcribed words, not on raw voice activity (see INTERRUPT_MIN_WORDS).
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy(),
                               FunctionCallUserMuteStrategy()],
         user_turn_strategies=UserTurnStrategies(

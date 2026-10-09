@@ -239,6 +239,7 @@ class PaymentDeps:
         return await family_is_paid(family_id)
 
     async def deliver(self, session: CallSession, template: str, vars: dict) -> None:
-        for ch in ("whatsapp", "web_inbox"):
-            if ch in self.channels:
-                await self.channels[ch].send(session.customer_id, template, vars)
+        # one message, on the customer's main channel (sending to both showed the link twice)
+        ch = next((c for c in ("whatsapp", "web_inbox") if c in self.channels), None)
+        if ch:
+            await self.channels[ch].send(session.customer_id, template, vars)
