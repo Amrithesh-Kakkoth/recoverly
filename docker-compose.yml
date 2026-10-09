@@ -17,6 +17,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://recoverly:recoverly@db:5432/recoverly
+      # PayPal sends the buyer back here after paying, so it must match the published port
+      PUBLIC_BASE_URL: http://localhost:${APP_PORT:-8000}
     ports: ["${APP_PORT:-8000}:8000"]
     volumes: ["./backend:/srv", "./web:/web"]
     depends_on:
