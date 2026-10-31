@@ -27,3 +27,6 @@ web/dist/
 *.log
 pgdata/
 sandbox-accounts.csv
+web/.next/
+web/next-env.d.ts
+*.tsbuildinfo
