@@ -1,45 +1,39 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/Badge";
+import { Transcript } from "@/components/Transcript";
 import { api } from "@/lib/api";
 import type { Call } from "@/lib/types";
 
 export function CallPanel({ callId, refreshKey }: { callId: string; refreshKey: number }) {
   const [call, setCall] = useState<Call | null>(null);
+  const [missing, setMissing] = useState(false);
 
   useEffect(() => {
     let live = true;
-    const load = () => api.call(callId).then((c) => live && setCall(c)).catch(() => {});
+    const load = () => api.call(callId).then((c) => live && setCall(c)).catch(() => setMissing(true));
     load();
     const t = setInterval(load, 3000); // call transcripts have no stream hookup yet; poll while this page is open
     return () => { live = false; clearInterval(t); };
   }, [callId, refreshKey]);
 
-  if (!call) return null;
+  if (!call) return missing
+    ? <section className="rounded-[0.625rem] border border-line bg-panel p-6 text-muted">No conversation was recorded for this call.</section>
+    : null;
   const ms = call.voice_to_voice_ms;
   const median = ms.length ? [...ms].sort((a, b) => a - b)[Math.floor(ms.length / 2)] : null;
+  const facts = [
+    call.outcome ? `Outcome: ${call.outcome.replaceAll("_", " ")}` : `Status: ${call.status}`,
+    median !== null ? `median reply ${(median / 1000).toFixed(1)} s` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
-    <div className="rounded-lg border border-line bg-panel p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-semibold text-muted">Call {callId.slice(0, 8)}</h2>
-        <Badge>{call.status}</Badge>
-        {call.outcome && <Badge>{call.outcome}</Badge>}
-        {median !== null && <span className="text-xs text-muted">median voice-to-voice {Math.round(median)} ms</span>}
+    <section className="rounded-[0.625rem] border border-line bg-panel p-6">
+      <div className="mb-5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h2 className="text-lg font-semibold">Call transcript</h2>
+        <span className="text-sm text-muted">{facts}</span>
       </div>
-      {call.summary && <p className="mb-3 text-sm">{call.summary}</p>}
-      <ul className="space-y-2 text-sm">
-        {call.transcript.map((t, i) => t.role === "event" ? (
-          <li key={i} className="flex justify-center">
-            <span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 dark:text-violet-300">
-              ⚡ PayPal · {String(t.text ?? "").replace(/^\[PAYPAL EVENT\]\s*/, "")}</span>
-          </li>
-        ) : (
-          <li key={i}><span className="mr-2 font-medium">{t.role === "user" ? "Customer" : "Agent"}</span>
-            <span className="text-muted">{t.text ?? t.content ?? ""}</span></li>
-        ))}
-        {call.transcript.length === 0 && <li className="text-muted">No transcript yet.</li>}
-      </ul>
-    </div>
+      {call.summary && <p className="mb-5 text-muted">{call.summary}</p>}
+      {call.transcript.length ? <Transcript turns={call.transcript} /> : <p className="text-muted">No conversation yet.</p>}
+    </section>
   );
 }

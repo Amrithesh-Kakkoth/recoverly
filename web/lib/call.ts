@@ -7,6 +7,7 @@ export interface LiveCall {
 
 interface Options {
   gated: boolean;
+  family?: string;
   audio: HTMLAudioElement;
   onState(state: RTCPeerConnectionState): void;
   onMic(open: boolean): void;
@@ -41,7 +42,7 @@ export async function answerCall(callId: string, o: Options): Promise<LiveCall> 
       setTimeout(done, 3000);
     });
     const { sdp, type } = pc.localDescription!;
-    const answer = await api.answerCall(callId, sdp, type);
+    const answer = await api.answerCall(callId, sdp, type, o.family);
     await pc.setRemoteDescription({ sdp: answer.sdp, type: answer.type });
   } catch (e) {
     hangup();

@@ -95,3 +95,11 @@ def gw():
     gateway.set_gateway(g)
     yield g
     gateway.set_gateway(None)
+
+
+async def sign_in(client, email="owner@example.com", store="Test Store") -> int:
+    """Creates a merchant; the client's cookie jar stays signed in. Returns the merchant id."""
+    r = await client.post("/api/auth/signup", json={"email": email, "password": "correct-horse-1",
+                                                    "store_name": store})
+    assert r.status_code == 201, r.text
+    return r.json()["id"]

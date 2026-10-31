@@ -21,6 +21,7 @@ class CallSession:
     offer_max_pct: float = 0.0
     max_seconds: int = 180
 
+    merchant_name: str = ""            # store the agent calls for; empty = the configured default
     transport: str = "webrtc"          # webrtc | twilio
     token: str = ""                    # per-call secret the Twilio webhook and websocket must present
     status: str = "ringing"            # ringing | live | ended

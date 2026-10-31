@@ -1,14 +1,13 @@
-const TONE: Record<string, string> = {
-  waiting: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
-  in_call: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
-  done: "bg-black/5 text-muted dark:bg-white/10",
-  running: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-  recovered: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  paid: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  lost: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+const STYLE: Record<string, [string, string]> = {
+  in_call: ["On a call", "bg-ink text-white"],
+  running: ["Running", "bg-[#e4e8e3] text-[#2e3a35]"],
+  waiting: ["Waiting", "bg-[#e4e8e3] text-[#2e3a35]"],
+  recovered: ["Recovered", "bg-[#cfebdd] text-accent-strong"],
+  paid: ["Paid", "bg-[#cfebdd] text-accent-strong"],
+  lost: ["Lost", "bg-[#f6e0d3] text-[#7a3410]"],
 };
 
 export function Badge({ children }: { children: string }) {
-  const tone = TONE[children.toLowerCase()] ?? "bg-black/5 text-muted dark:bg-white/10";
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>{children.replace("_", " ")}</span>;
+  const [label, tone] = STYLE[children.toLowerCase()] ?? [children.replaceAll("_", " "), "bg-[#e4e8e3] text-[#2e3a35]"];
+  return <span className={`inline-block rounded-full px-2.5 py-0.5 text-[0.8125rem] font-medium leading-5 ${tone}`}>{label}</span>;
 }

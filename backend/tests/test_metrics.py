@@ -9,12 +9,16 @@ from app.journeys.models import JourneyRecord
 from app.main import app
 from app.payments.models import PaymentObject
 from app.voice.models import Call
+from tests.conftest import sign_in
 
 T0 = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 
 
-async def get():
+async def get(email="owner@example.com"):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/api/auth/login", json={"email": email, "password": "correct-horse-1"})
+        if r.status_code == 401:
+            await sign_in(c, email)
         return (await c.get("/api/metrics")).json()
 
 
@@ -24,6 +28,8 @@ async def test_empty():
 
 
 async def test_recovery_kpis():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        merchant_id = await sign_in(c)
     async with db.session() as s:
         j = JourneyRecord(name="j", trigger_event="checkout.abandoned")
         s.add(j)
@@ -33,7 +39,7 @@ async def test_recovery_kpis():
         await s.flush()
 
         def run(fam, status, reason):
-            r = JourneyRun(journey_version_id=v.id, customer_id="c", family_id=fam, status=status,
+            r = JourneyRun(merchant_id=merchant_id, journey_version_id=v.id, customer_id="c", family_id=fam, status=status,
                            cursor="x", close_reason=reason, started_at=T0)
             s.add(r)
             return r
@@ -53,3 +59,5 @@ async def test_recovery_kpis():
     assert Decimal(m["recovered_revenue"]) == Decimal("49.00") and m["currency"] == "USD"
     assert m["median_seconds_to_pay"] == 90
     assert m["calls"] == 2 and m["calls_per_recovered"] == 2
+    other = await get("other@example.com")
+    assert other["runs_total"] == 0 and other["calls"] == 0 and other["recovered_revenue"] == "0"

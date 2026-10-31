@@ -13,7 +13,8 @@ class InvalidJourney(ValueError):
 
 
 async def save_journey(definition: dict, *, journey_id: int | None = None,
-                       source_prompt: str | None = None, limits: dict | None = None) -> tuple[int, int]:
+                       source_prompt: str | None = None, limits: dict | None = None,
+                       merchant_id: int | None = None) -> tuple[int, int]:
     """Lint, then save as a new version and make it active. Running journeys keep their
     own version. Returns (journey_id, version_id)."""
     j = Journey.model_validate(definition)
@@ -23,7 +24,7 @@ async def save_journey(definition: dict, *, journey_id: int | None = None,
     async with db.session() as s:
         rec = await s.get(JourneyRecord, journey_id) if journey_id else None
         if rec is None:
-            rec = JourneyRecord(name=j.name, trigger_event=j.trigger["event"])
+            rec = JourneyRecord(name=j.name, trigger_event=j.trigger["event"], merchant_id=merchant_id)
             s.add(rec)
             await s.flush()
         last = await s.scalar(select(JourneyVersion.version).where(

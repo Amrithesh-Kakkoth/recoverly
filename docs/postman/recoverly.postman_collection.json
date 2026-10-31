@@ -2,9 +2,66 @@
   "info": {
     "name": "Recoverly API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Backend API plus the PayPal sandbox calls it makes. Set baseUrl (default http://localhost:8000). Run folder 1 then 2 in order: checkout stores family_id/order_id, the runs request stores run_id. PayPal sandbox credentials go in the environment's paypalClientId / paypalSecret (never commit them)."
+    "description": "Backend API plus the PayPal sandbox calls it makes. Set baseUrl (default http://localhost:8000). Run folder 0 first to sign in (Postman keeps the session cookie), then 1 and 2 in order: checkout stores family_id/order_id, the runs request stores run_id. PayPal sandbox credentials go in the environment's paypalClientId / paypalSecret (never commit them)."
   },
   "item": [
+    {
+      "name": "0. Accounts",
+      "item": [
+        {
+          "name": "Sign up (keeps the session cookie)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/signup",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"postman-{{$timestamp}}@example.com\",\n  \"password\": \"correct-horse-1\",\n  \"store_name\": \"Postman Store\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', () => pm.expect(pm.response.code).to.eql(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Who am I",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('signed in', () => pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
     {
       "name": "1. Demo & storefront",
       "item": [

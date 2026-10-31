@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     kill_switch: bool = False
 
     # voice agent
-    merchant_name: str = "Northwind Store"   # how the agent introduces who it is calling for
+    merchant_name: str = "Northwind Store"   # the demo merchant's store name, used by the agent
+    demo_merchant_email: str = "demo@recoverly.example"  # owns runs from the public Try it page
+    demo_merchant_password: str = ""   # empty = nobody can sign in as the demo merchant
     llm_model: str = "gpt-4.1-mini"
     # Any OpenAI-compatible provider works (Groq, Gemini, OpenRouter...). Empty = OpenAI itself.
     llm_base_url: str = ""

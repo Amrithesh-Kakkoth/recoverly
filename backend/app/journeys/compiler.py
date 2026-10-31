@@ -96,7 +96,8 @@ def summarize(definition: dict) -> list[str]:
     for sid in order:
         st = j.steps[sid]
         if st.type == "message":
-            out.append(f"Send a {st.channel} message ({st.template})" + (" with a payment link." if st.include_pay_link else "."))
+            channel = "WhatsApp" if st.channel == "whatsapp" else st.channel
+            out.append(f"Send a {channel} message ({st.template})" + (" with a payment link." if st.include_pay_link else "."))
         elif st.type == "wait":
             stop = " or until the customer pays" if "payment.captured" in st.until_any else ""
             out.append(f"Wait up to {_human(st.duration or 'PT0S')}{stop}.")

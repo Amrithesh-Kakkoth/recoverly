@@ -1,4 +1,5 @@
 """Import side effects only: registers every table on Base.metadata."""
+from app.accounts import models as _accounts  # noqa: F401
 from app.api import models as _api  # noqa: F401
 from app.channels import models as _channels  # noqa: F401
 from app.detector import models as _detector  # noqa: F401

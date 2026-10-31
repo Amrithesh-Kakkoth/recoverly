@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
+from app.accounts.models import Merchant
 from app.api.models import Customer
 from app.core import sse
 from app.core.config import Settings, settings as default_settings
@@ -57,10 +58,12 @@ class VoiceCallManager:
         async with db.session() as s:
             run = await s.get(JourneyRun, int(run_id))
             cust = await s.get(Customer, run.customer_id)
+            merchant = await s.get(Merchant, run.merchant_id) if run.merchant_id else None
         ctx = run.context_json or {}
         sess = CallSession(
             call_id=f"call_{uuid.uuid4().hex[:10]}", run_id=run.id, family_id=run.family_id,
             customer_id=run.customer_id, customer_name=(cust.name if cust else "there"),
+            merchant_name=merchant.store_name if merchant else "",
             objective=step.get("objective") or "Help the customer complete the purchase",
             amount=Decimal(ctx.get("amount") or "0.00"), currency=ctx.get("currency") or "USD",
             tools=list(step.get("tools") or []),

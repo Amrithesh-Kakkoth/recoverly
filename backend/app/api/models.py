@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -10,6 +10,7 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchants.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     phone_e164: Mapped[str | None] = mapped_column(String(20))
     whatsapp_optin: Mapped[bool] = mapped_column(Boolean, default=False)

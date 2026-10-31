@@ -107,7 +107,7 @@ jobs:
         run: >-
           npx --yes newman@6 run docs/postman/recoverly.postman_collection.json
           --env-var baseUrl=http://localhost:8000
-          --folder "3. Journeys" --folder "4. Integrations"
+          --folder "0. Accounts" --folder "3. Journeys" --folder "4. Integrations"
       - name: Backend log
         if: failure()
         run: cat "$RUNNER_TEMP/backend.log"

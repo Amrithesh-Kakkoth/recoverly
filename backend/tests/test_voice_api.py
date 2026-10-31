@@ -70,9 +70,9 @@ async def test_offer_answers_a_ringing_call_once(client):
     c, r = client
     rid = await r.seed()
     call_id = await r.mgr.start_call(str(rid), r.STEP)
-    ok = await c.post(f"/api/calls/{call_id}/offer", json=OFFER)
+    ok = await c.post(f"/api/calls/{call_id}/offer?family=F1", json=OFFER)
     assert ok.status_code == 200 and ok.json()["type"] == "answer"
-    assert (await c.post(f"/api/calls/{call_id}/offer", json=OFFER)).status_code == 409
+    assert (await c.post(f"/api/calls/{call_id}/offer?family=F1", json=OFFER)).status_code == 409
     assert (await c.post("/api/calls/call_nope/offer", json=OFFER)).status_code == 404
     await r.mgr.finish(r.live.get(call_id))
 
@@ -83,10 +83,10 @@ async def test_call_detail_live_then_ended(client):
     call_id = await r.mgr.start_call(str(rid), r.STEP)
     sess = r.live.get(call_id)
     sess.transcript.append({"role": "user", "text": "hi"})
-    live = (await c.get(f"/api/calls/{call_id}")).json()
+    live = (await c.get(f"/api/calls/{call_id}?family=F1")).json()
     assert live["status"] == "ringing" and live["transcript"][0]["text"] == "hi"
     await r.mgr.finish(sess, no_answer=False)
-    done = (await c.get(f"/api/calls/{call_id}")).json()
+    done = (await c.get(f"/api/calls/{call_id}?family=F1")).json()
     assert done["status"] == "ended" and done["outcome"] == "needs_human"  # spoke, no hint, low confidence
     assert (await c.get("/api/calls/call_nope")).status_code == 404
 
