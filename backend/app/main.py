@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.calls import router as calls_router
 from app.api.demo import router as demo_router
 from app.api.router import router as api_router
+from app.api.journeys import router as journeys_router
 from app.api.metrics import router as metrics_router
 from app.api.runs import router as runs_router
 from app.api.shop import router as shop_router
@@ -17,6 +18,7 @@ from app.core.config import REPO_ROOT, settings
 from app.channels.web_inbox import WebInbox
 from app.core.db import db
 from app.detector.service import AbandonDetector
+from app.journeys.compiler import openai_llm
 from app.journeys.default import ensure_default_journey
 from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
@@ -43,6 +45,8 @@ async def lifespan(_: FastAPI):
     payments.register()
     await ensure_default_journey()
     channels = {"whatsapp": WebInbox("whatsapp"), "web_inbox": WebInbox()}
+    app.state.llm = (openai_llm(settings.llm_key, settings.llm_model, settings.llm_base_url)
+                     if settings.llm_key else None)
     live = LiveCalls()
     live.register_bus()
     app.state.live_calls = live
@@ -74,6 +78,7 @@ app.include_router(api_router)
 app.include_router(shop_router)
 app.include_router(runs_router)
 app.include_router(metrics_router)
+app.include_router(journeys_router)
 app.include_router(calls_router)
 app.include_router(demo_router)
 

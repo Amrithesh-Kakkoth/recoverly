@@ -13,7 +13,7 @@ Modular monolith. Modules talk only through `app/core/events.py` (bus) and `app/
 | `voice` | Pipecat bots, live registry, injection gate, tools, tagger |
 | `channels` | WhatsApp (Twilio), web inbox |
 | `api` | REST, SSE, storefront backend |
-| `web/` | React dashboard + storefront |
+| `web/` | Next.js dashboard (runs, KPIs, journey builder) and the "Try it" wizard; `web/demo` is the older static page |
 
 ## Run locally
 
@@ -27,6 +27,14 @@ cp .env.example .env            # then fill in the PayPal sandbox and voice keys
 cd backend && .venv/bin/uvicorn app.main:app --port 8000     # demo at http://localhost:8000/demo/
 ```
 
+The dashboard is a separate Next.js app that proxies `/api` and `/shop` to the backend (`BACKEND_URL`, default `http://localhost:8000`):
+
+```
+cd web && npm install && npm run dev      # http://localhost:3000  (Journeys, Try it)
+```
+
+The journey builder's "Generate" button needs an LLM key (`OPENAI_API_KEY` or `LLM_API_KEY`).
+
 Tables are created on first boot (`create_all`); there are no migrations yet, so a schema change
 needs the affected tables dropped. On boot the app also re-fires due timers, reprocesses stored
 webhooks and recovers runs whose live call was cut off by the restart.
@@ -36,7 +44,7 @@ webhooks and recovers runs whose live call was cut off by the restart.
 
 ### Docker Compose
 
-`make up` builds and starts Postgres 16 and the app (image is about 2.5 GB because of the voice
+`make up` builds and starts Postgres 16, the app and the Next.js dashboard (`WEB_PORT`, default 3000) (image is about 2.5 GB because of the voice
 stack). If a local Postgres or server already uses the default ports:
 
 ```
