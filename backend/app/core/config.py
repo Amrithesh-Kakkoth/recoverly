@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_whatsapp_from: str = ""
+    twilio_voice_from: str = ""        # your Twilio number (E.164) that places the call
+    call_via_phone: bool = False       # dial the customer's real phone instead of ringing the browser
 
     openai_api_key: str = ""
     deepgram_api_key: str = ""
@@ -51,6 +53,11 @@ class Settings(BaseSettings):
     @property
     def llm_key(self) -> str:
         return self.llm_api_key or self.openai_api_key
+
+    @property
+    def phone_enabled(self) -> bool:
+        return bool(self.call_via_phone and self.twilio_account_sid and self.twilio_auth_token
+                    and self.twilio_voice_from)
 
     @property
     def voice_enabled(self) -> bool:

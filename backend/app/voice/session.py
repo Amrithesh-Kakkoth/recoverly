@@ -21,6 +21,8 @@ class CallSession:
     offer_max_pct: float = 0.0
     max_seconds: int = 180
 
+    transport: str = "webrtc"          # webrtc | twilio
+    token: str = ""                    # per-call secret the Twilio webhook and websocket must present
     status: str = "ringing"            # ringing | live | ended
     paid: bool = False                 # set by the payment event so check_payment_status agrees
     discount_pct: float = 0.0

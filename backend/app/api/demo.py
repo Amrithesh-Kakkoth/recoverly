@@ -19,7 +19,8 @@ async def ice() -> dict:
 @router.get("/demo-config")
 async def demo_config() -> dict:
     cfg: dict = {"abandon_after_seconds": settings.abandon_after_seconds,
-                 "voice_enabled": settings.voice_enabled}
+                 "voice_enabled": settings.voice_enabled,
+                 "phone_calls": settings.phone_enabled}
     if settings.demo_buyer_email:  # sandbox buyer shown on the page so judges can pay
         cfg["buyer"] = {"email": settings.demo_buyer_email, "password": settings.demo_buyer_password}
     return cfg

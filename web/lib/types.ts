@@ -55,6 +55,7 @@ export interface Call {
 export interface DemoConfig {
   abandon_after_seconds: number;
   voice_enabled: boolean;
+  phone_calls?: boolean;
   buyer?: { email: string; password: string };
 }
 

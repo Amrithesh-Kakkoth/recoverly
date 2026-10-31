@@ -5,7 +5,9 @@ be published synchronously from start_call.
 
 Spend caps: kill switch, max concurrent calls, ring timeout, hard per-call time cap."""
 import asyncio
+import hmac
 import logging
+import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
@@ -26,6 +28,7 @@ from app.voice.tools import VoiceDeps
 
 log = logging.getLogger(__name__)
 BotRunner = Callable[[CallSession, object, VoiceDeps], Awaitable[None]]
+PhoneRunner = Callable[[CallSession, object, object, VoiceDeps], Awaitable[None]]  # session, ws, serializer, deps
 
 
 async def mark_interrupted_calls() -> int:
@@ -39,9 +42,11 @@ async def mark_interrupted_calls() -> int:
 
 class VoiceCallManager:
     def __init__(self, *, live: LiveCalls, deps: VoiceDeps, classify: Classifier | None,
-                 bot_runner: BotRunner, request_handler=None, event_bus: EventBus = bus,
+                 bot_runner: BotRunner, phone_runner: PhoneRunner | None = None, dialer=None,
+                 request_handler=None, event_bus: EventBus = bus,
                  hub: sse.SSEHub | None = None, cfg: Settings = default_settings) -> None:
         self.live, self.deps, self.classify, self.bot_runner = live, deps, classify, bot_runner
+        self.phone_runner, self.dialer = phone_runner, dialer
         self.handler, self.bus, self.cfg = request_handler, event_bus, cfg
         self.hub = hub or sse.hub
         self._timers: dict[str, list[asyncio.Task]] = {}
@@ -61,18 +66,71 @@ class VoiceCallManager:
             tools=list(step.get("tools") or []),
             offer_max_pct=float((step.get("offer") or {}).get("max", 0)),
             max_seconds=self.cfg.call_max_seconds)
+        phone = self.cfg.phone_enabled and bool(cust and cust.phone_e164)
+        if phone:
+            sess.transport, sess.token = "twilio", secrets.token_urlsafe(16)
         async with db.session() as s:
-            s.add(Call(id=sess.call_id, run_id=run.id, transport="webrtc", status="ringing"))
+            s.add(Call(id=sess.call_id, run_id=run.id, transport=sess.transport, status="ringing"))
             await s.commit()
 
         if self.cfg.kill_switch or self.live.count() >= self.cfg.max_concurrent_calls:
             self._later(self.finish(sess, no_answer=True, reason="busy"))
             return sess.call_id
         self.live.register(sess)
-        self.hub.publish(f"run:{run.id}", "call.ringing", {"call_id": sess.call_id,
-                                                           "run_id": run.id})
         self._timers[sess.call_id] = [asyncio.create_task(self._ring_timeout(sess))]
+        if phone:
+            try:
+                sid = await self._dialer().dial(cust.phone_e164, sess.call_id, sess.token)
+            except Exception:
+                log.exception("dialing %s failed", sess.call_id)
+                self._later(self.finish(sess, no_answer=True, reason="dial_failed"))
+                return sess.call_id
+            async with db.session() as s:
+                (await s.get(Call, sess.call_id)).twilio_sid = sid
+                await s.commit()
+        else:  # the dashboard's "Answer" button rings in the browser
+            self.hub.publish(f"run:{run.id}", "call.ringing", {"call_id": sess.call_id, "run_id": run.id})
         return sess.call_id
+
+    def _dialer(self):
+        if self.dialer is None:
+            from app.voice.phone import TwilioDialer
+            self.dialer = TwilioDialer(self.cfg)
+        return self.dialer
+
+    # ------------------------------------------------------------------ real phone call
+    async def answer_phone(self, call_id: str, token: str, websocket, stream_sid: str, call_sid: str) -> None:
+        """Twilio's media stream for a call the customer just picked up; runs the agent until it ends."""
+        sess = self.live.get(call_id)
+        if sess is None or sess.status == "ended" or not hmac.compare_digest(sess.token or "-", token):
+            raise LookupError("call not found")
+        if sess.status != "ringing":
+            raise ValueError("call already answered")
+        sess.status = "live"
+        for t in self._timers.pop(call_id, []):
+            t.cancel()
+        self._timers[call_id] = [asyncio.create_task(self._time_cap(sess))]
+        from pipecat.serializers.twilio import TwilioFrameSerializer
+        serializer = TwilioFrameSerializer(stream_sid, call_sid, self.cfg.twilio_account_sid,
+                                           self.cfg.twilio_auth_token)
+        runner = self.phone_runner
+        if runner is None:
+            from app.voice.pipeline import run_phone_bot
+            runner = run_phone_bot
+        try:
+            await runner(sess, websocket, serializer, self.deps)
+        except Exception:
+            log.exception("phone bot for %s crashed", call_id)
+            sess.ended_reason = "error"
+        finally:
+            await self.finish(sess)
+
+    async def on_phone_status(self, call_id: str, status: str) -> None:
+        """Twilio's final status: a call nobody picked up never opens a media stream."""
+        from app.voice.phone import DEAD_STATUSES
+        sess = self.live.get(call_id)
+        if sess is not None and sess.status == "ringing" and status in DEAD_STATUSES:
+            await self.finish(sess, no_answer=True, reason=status)
 
     # ------------------------------------------------------------------ answering
     async def answer(self, call_id: str, request) -> dict | None:

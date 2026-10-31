@@ -192,7 +192,8 @@ export default function TryPage() {
             <div className={card}>
               <h2 className="mb-1 font-semibold">Waiting for the journey…</h2>
               <p className="text-sm text-muted">{snap?.timeline.some((e) => e.kind === "call.completed")
-                ? "Call finished. Finalising…" : "Cart abandoned. A WhatsApp nudge goes out first, then the agent calls."}</p>
+                ? "Call finished. Finalising…" : (cfg?.phone_calls ? "Cart abandoned. A WhatsApp nudge goes out first, then your phone rings. Pick up to talk to the agent."
+                  : "Cart abandoned. A WhatsApp nudge goes out first, then the agent calls.")}</p>
             </div>
           )}
 
