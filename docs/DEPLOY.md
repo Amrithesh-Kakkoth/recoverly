@@ -75,3 +75,28 @@ One-time setup:
 
 To deploy: **Actions → Deploy → Run workflow**. Leave the SHA blank for the latest commit, after `Publish images` has finished for it.
 To roll back by hand, run it again with an earlier commit's SHA.
+
+## Database backups
+Postgres runs in a Docker volume on the server. It survives restarts and deploys, but not losing the disk, so back it up.
+`deploy/backup.sh` writes a verified dump to `~/backups` (readable by your user only) and keeps 7 days of them.
+
+Install the nightly job on the server (03:15 UTC):
+```
+mkdir -p ~/backups
+(crontab -l 2>/dev/null; echo '15 3 * * * PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin $HOME/recoverly/deploy/backup.sh >> $HOME/backups/backup.log 2>&1') | crontab -
+```
+Run it once by hand and check the log: `~/recoverly/deploy/backup.sh`
+
+**Get copies off the server**, because dumps on the same disk are lost with it. Either pull them to your own machine:
+```
+scp -i ~/.ssh/recoverly-aws.pem 'ubuntu@YOUR_IP:backups/recoverly-*.sql.gz' .
+```
+or copy each one to S3: install the AWS CLI on the server, create a private bucket, give the instance an IAM role that may only write to it,
+and add `BACKUP_S3_URI=s3://your-bucket/recoverly` before `PATH=` in the cron line.
+
+**Restore**, which replaces the current data. Take a fresh backup first, and test on a copy when you can:
+```
+cd ~/recoverly
+gzip -dc ~/backups/recoverly-YYYYMMDDTHHMMSSZ.sql.gz | docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db psql -U recoverly -v ON_ERROR_STOP=1 recoverly
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart app
+```
