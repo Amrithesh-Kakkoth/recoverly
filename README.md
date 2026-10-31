@@ -2,6 +2,35 @@
 
 Callback voice agent that recovers abandoned PayPal checkouts. Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+When a PayPal checkout is abandoned, a WhatsApp nudge goes out, then an AI voice agent calls the customer, answers
+objections, and sends a fresh PayPal link while they stay on the line. When PayPal confirms the payment, that event is pushed
+into the live call and the agent confirms it out loud. Merchants describe the flow in plain English and watch recovered
+revenue on a live dashboard.
+
+## How it uses PayPal (sandbox only)
+
+- **PayPal Agent Toolkit (Python):** creates and looks up orders and returns the approval link the agent sends to the customer.
+- **PayPal REST API (Orders v2):** captures payments with `PayPal-Request-Id` idempotency keys, refunds, and webhook signature
+  verification. One `capture_once` path plus a per-customer "family" guard prevents double charges.
+- **PayPal Checkout and webhooks** (`CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`): verified, deduplicated, then injected
+  into the live call. The app refuses to start unless the PayPal base URL is the sandbox.
+
+## How it uses AI
+
+- **LLM (OpenAI-compatible, default `gpt-4.1-mini`):** the voice agent's brain (function calling: send link, check payment, apply a
+  capped offer, end call); compiles plain-English journeys into validated JSON; tags each call's outcome.
+- **Pipecat** runs the real-time voice pipeline (WebRTC in the browser, Twilio Media Streams for real phone calls), with
+  **Deepgram** (speech-to-text), **Cartesia** (text-to-speech) and **Silero VAD** (turn detection).
+
+## Other tools and sponsor integrations
+
+- **Zapier:** outbound webhook when a recovery run ends (see Integrations below).
+- **Postman:** collection and environment in `docs/postman/`, including the PayPal sandbox calls.
+- **AG Grid:** the dashboard's runs table.
+- **Stack:** Python, FastAPI, SQLAlchemy, Postgres, Next.js, React, TypeScript, Tailwind, server-sent events, Twilio, Docker Compose.
+
+Licensed under MIT.
+
 Modular monolith. Modules talk only through `app/core/events.py` (bus) and `app/core/interfaces.py`.
 `voice` is the first candidate to split into its own service (swap `LiveCallRegistry` for HTTP/Redis).
 
