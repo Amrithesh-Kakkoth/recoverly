@@ -20,8 +20,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const post = <T>(path: string, body?: unknown) =>
-  request<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+const send = <T>(method: string, path: string, body?: unknown) =>
+  request<T>(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 
 /** Try it visitors have no account: their checkout's family id is what lets them see that one run. */
 const asVisitor = (family?: string) => (family ? `?family=${encodeURIComponent(family)}` : "");
@@ -35,6 +36,10 @@ export const api = {
   compileJourney: (prompt: string) => post<CompileResult>("/api/journeys/compile", { prompt }),
   saveJourney: (definition: JourneyDefinition, journey_id: number | null, source_prompt: string) =>
     post<{ journey_id: number; version_id: number }>("/api/journeys", { definition, journey_id, source_prompt }),
+  integrations: () => request<{ slack: boolean }>("/api/integrations"),
+  connectSlack: (url: string) => send<{ slack: boolean }>("PUT", "/api/integrations/slack", { url }),
+  disconnectSlack: () => send<{ slack: boolean }>("DELETE", "/api/integrations/slack"),
+  testSlack: () => post<{ ok: boolean }>("/api/integrations/slack/test"),
   metrics: () => request<Metrics>("/api/metrics"),
   runs: (limit = 50) => request<Run[]>(`/api/runs?limit=${limit}`),
   run: (id: number, family?: string) => request<RunDetail>(`/api/runs/${id}${asVisitor(family)}`),

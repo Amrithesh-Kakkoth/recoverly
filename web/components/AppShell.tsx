@@ -9,6 +9,7 @@ import type { Merchant } from "@/lib/types";
 const NAV = [
   { href: "/", label: "Runs", active: (p: string) => p === "/" || p.startsWith("/runs") },
   { href: "/journeys", label: "Journeys", active: (p: string) => p.startsWith("/journeys") },
+  { href: "/settings", label: "Settings", active: (p: string) => p.startsWith("/settings") },
   { href: "/try", label: "Try it", active: () => false },
 ];
 

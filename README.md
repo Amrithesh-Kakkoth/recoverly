@@ -82,6 +82,7 @@ Passwords are hashed with scrypt, and sessions are HttpOnly cookies backed by th
 
 ### Integrations
 
+- **Slack:** each merchant connects their own channel under **Settings** with a Slack incoming webhook URL, and gets a message when a recovery run ends. The URL is stored in the database and never sent back to the browser.
 - **Zapier (or any webhook):** set `OUTBOUND_WEBHOOK_URL` to a Zapier "Catch Hook" URL. When a recovery run ends the backend POSTs
   `{event: recovery.recovered | recovery.lost, run_id, customer_name, amount, currency, text, run_url}` (never the phone number), so a Zap
   can post "Recovered USD 49.00 from Asha" to Slack, a sheet or email. `POST /api/integrations/webhook/test` sends a sample so the Zap

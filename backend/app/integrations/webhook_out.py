@@ -1,4 +1,5 @@
-"""Outbound webhook: tell the merchant's tools (Zapier, Make, n8n, Slack...) when a recovery run ends.
+"""Tell other tools when a recovery run ends: each merchant's own Slack channel, plus the operator's
+outbound webhook (Zapier, Make, n8n...).
 
 Works with any URL that accepts a JSON POST; for Zapier use a "Catch Hook" trigger. Listens to the same
 `run.ended` events the dashboard streams, so the journey engine knows nothing about it. Customer phone
@@ -10,6 +11,7 @@ from decimal import Decimal
 
 import httpx
 
+from app.accounts.models import Merchant
 from app.accounts.service import demo_merchant_id
 from app.api.models import Customer
 from app.core import sse
@@ -41,6 +43,28 @@ async def build_payload(run_id: int, cfg: Settings = default_settings) -> dict |
         "text": f"Recovered {money} from {name}" if won else f"Could not recover {money} from {name}".replace("  ", " "),
         "run_url": f"{cfg.dashboard_url.rstrip('/')}/runs/{run.id}",
     }
+
+
+def _slack_escape(text: str) -> str:
+    """Slack treats these as markup, so a customer's name can't smuggle in a link or a mention."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+async def slack_message(run_id: int, cfg: Settings = default_settings) -> tuple[str, dict] | None:
+    """(webhook url, message) if this run's merchant connected Slack."""
+    async with db.session() as s:
+        run = await s.get(JourneyRun, run_id)
+        merchant = await s.get(Merchant, run.merchant_id) if run and run.merchant_id else None
+        cust = await s.get(Customer, run.customer_id) if merchant else None
+    if merchant is None or not merchant.slack_webhook_url:
+        return None
+    ctx = run.context_json or {}
+    money = f"{ctx.get('currency') or 'USD'} {Decimal(ctx['amount']):.2f}" if ctx.get("amount") else "an order"
+    name = _slack_escape(cust.name if cust else "a customer")
+    won = run.close_reason == "recovered"
+    text = f"Recovered {money} from {name}" if won else f"Could not recover {money} from {name}"
+    link = f"{cfg.dashboard_url.rstrip('/')}/runs/{run.id}"
+    return merchant.slack_webhook_url, {"text": f"{':tada: ' if won else ''}{text}. <{link}|View run #{run.id}>"}
 
 
 def sample_payload(cfg: Settings = default_settings) -> dict:
@@ -86,6 +110,10 @@ class RecoveryNotifier:
             if run_id in self._sent:
                 continue
             self._sent.add(run_id)
-            payload = await build_payload(run_id, self.cfg)
-            if payload:
-                await post(self.cfg.outbound_webhook_url, payload, self.client)
+            if self.cfg.outbound_webhook_url:
+                payload = await build_payload(run_id, self.cfg)
+                if payload:
+                    await post(self.cfg.outbound_webhook_url, payload, self.client)
+            slack = await slack_message(run_id, self.cfg)
+            if slack:
+                await post(*slack, self.client)
