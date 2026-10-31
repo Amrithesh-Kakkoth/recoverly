@@ -74,3 +74,15 @@ export interface CheckoutInput {
   whatsapp_optin: boolean;
   call_consent: boolean;
 }
+
+export interface Metrics {
+  runs_total: number;
+  runs_active: number;
+  recovered: number;
+  recovery_rate: number | null;
+  recovered_revenue: string;
+  currency: string | null;
+  median_seconds_to_pay: number | null;
+  calls: number;
+  calls_per_recovered: number | null;
+}

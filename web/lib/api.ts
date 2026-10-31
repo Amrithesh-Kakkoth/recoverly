@@ -1,4 +1,4 @@
-import type { Call, CheckoutInput, CheckoutResult, DemoConfig, Run, RunDetail } from "./types";
+import type { Call, CheckoutInput, CheckoutResult, DemoConfig, Metrics, Run, RunDetail } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { cache: "no-store", ...init });
@@ -11,6 +11,7 @@ const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export const api = {
+  metrics: () => request<Metrics>("/api/metrics"),
   runs: (limit = 50) => request<Run[]>(`/api/runs?limit=${limit}`),
   run: (id: number) => request<RunDetail>(`/api/runs/${id}`),
   call: (id: string) => request<Call>(`/api/calls/${encodeURIComponent(id)}`),

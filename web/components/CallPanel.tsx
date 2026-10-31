@@ -29,8 +29,13 @@ export function CallPanel({ callId, refreshKey }: { callId: string; refreshKey: 
       </div>
       {call.summary && <p className="mb-3 text-sm">{call.summary}</p>}
       <ul className="space-y-2 text-sm">
-        {call.transcript.map((t, i) => (
-          <li key={i}><span className="mr-2 font-medium">{t.role ?? "—"}</span>
+        {call.transcript.map((t, i) => t.role === "event" ? (
+          <li key={i} className="flex justify-center">
+            <span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 dark:text-violet-300">
+              ⚡ PayPal · {String(t.text ?? "").replace(/^\[PAYPAL EVENT\]\s*/, "")}</span>
+          </li>
+        ) : (
+          <li key={i}><span className="mr-2 font-medium">{t.role === "user" ? "Customer" : "Agent"}</span>
             <span className="text-muted">{t.text ?? t.content ?? ""}</span></li>
         ))}
         {call.transcript.length === 0 && <li className="text-muted">No transcript yet.</li>}

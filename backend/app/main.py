@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.calls import router as calls_router
 from app.api.demo import router as demo_router
 from app.api.router import router as api_router
+from app.api.metrics import router as metrics_router
 from app.api.runs import router as runs_router
 from app.api.shop import router as shop_router
 from app.core.config import REPO_ROOT, settings
@@ -72,6 +73,7 @@ app = FastAPI(title="Recoverly", lifespan=lifespan)
 app.include_router(api_router)
 app.include_router(shop_router)
 app.include_router(runs_router)
+app.include_router(metrics_router)
 app.include_router(calls_router)
 app.include_router(demo_router)
 
