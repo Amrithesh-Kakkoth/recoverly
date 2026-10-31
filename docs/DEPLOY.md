@@ -8,6 +8,7 @@ because the voice stack makes the app image about 2.5 GB).
 1. Create an Ubuntu VPS and note its public IP.
 2. Point a DNS `A` record for your domain (for example `demo.yourdomain.com`) at that IP.
 3. Open the firewall: TCP 22, 80, 443 and **UDP 32768-60999** (WebRTC media uses ephemeral UDP ports).
+   On Google Cloud, Oracle or AWS, allow these in the provider's firewall too; on Google Cloud that firewall is the one that matters, so you can skip `ufw`.
    ```
    sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 32768:60999/udp && sudo ufw enable
    ```
@@ -22,7 +23,7 @@ Edit `.env`:
 - `DOMAIN=demo.yourdomain.com` and `DB_PASSWORD=<a long random password>`
 - `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` (sandbox app), `PAYPAL_WEBHOOK_ID` (step 4)
 - `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`
-- `ABANDON_AFTER_SECONDS=90` and `TIME_SCALE=` a small number (for example `0.02`) so a demo finishes in minutes
+- `ABANDON_AFTER_SECONDS=90` and `TIME_SCALE=600` so a demo finishes in minutes (journey waits are divided by this, so a larger number means shorter waits)
 - `DEMO_BUYER_EMAIL` / `DEMO_BUYER_PASSWORD`: the sandbox buyer shown on the Try it page
 - optional: `OUTBOUND_WEBHOOK_URL` (Zapier), `TURN_ICE_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL`, Twilio settings
 
