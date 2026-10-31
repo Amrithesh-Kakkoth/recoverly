@@ -1,0 +1,53 @@
+name: Docker check
+
+# Slow, so it only runs when something that affects the images or Compose changes.
+on:
+  pull_request:
+    paths:
+      - "backend/Dockerfile"
+      - "backend/pyproject.toml"
+      - "backend/requirements.lock"
+      - "web/Dockerfile"
+      - "web/package*.json"
+      - "web/next.config.ts"
+      - "docker-compose*.yml"
+      - "deploy/**"
+      - ".github/workflows/docker-check.yml"
+
+concurrency:
+  group: docker-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: cp .env.example .env
+      - run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+        env:
+          DOMAIN: ci.example.com
+          DB_PASSWORD: ci
+
+  image:
+    name: Build ${{ matrix.service }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: app, context: backend }
+          - { service: web, context: web }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

@@ -97,7 +97,7 @@ Twilio calls the app back at `/twilio/voice/{call_id}` (TwiML) and `/twilio/stat
 
 ### Deploying
 
-See [docs/DEPLOY.md](docs/DEPLOY.md) for a single-VPS setup with HTTPS (Caddy) and WebRTC-friendly networking.
+See [docs/DEPLOY.md](docs/DEPLOY.md) for a single-VPS setup with HTTPS (Caddy), WebRTC-friendly networking, and CI/CD through GitHub Actions.
 
 ### Docker Compose
 

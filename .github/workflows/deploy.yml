@@ -1,0 +1,61 @@
+name: Deploy
+
+# Manual on purpose: restarting the backend drops any call in progress.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA to deploy (blank = latest commit on the selected branch)
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SHA: ${{ inputs.sha || github.sha }}
+      TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the commit SHA
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-character commit SHA"; exit 1; }
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+      # Copied out of the repo first: the script checks out other commits while it runs.
+      - name: Upload the deploy script
+        run: scp deploy/deploy.sh "$TARGET:/tmp/recoverly-deploy.sh"
+      - name: Log the server in to the image registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GH_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u ${{ github.actor }} --password-stdin"
+      - name: Deploy
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || 'recoverly' }}
+        run: ssh "$TARGET" "bash /tmp/recoverly-deploy.sh '$SHA' '$DEPLOY_PATH'"
+      - name: Check the public URL
+        if: vars.DEPLOY_URL != ''
+        env:
+          DEPLOY_URL: ${{ vars.DEPLOY_URL }}
+        run: curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$DEPLOY_URL/health"
+      - name: Log the server out of the image registry
+        if: always()
+        run: ssh "$TARGET" "docker logout ghcr.io" || true

@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: recoverly
+          POSTGRES_PASSWORD: recoverly
+          POSTGRES_DB: recoverly_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U recoverly"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - run: pip install -c requirements.lock ".[voice,paypal,dev]"
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql+asyncpg://recoverly:recoverly@localhost:5432/recoverly_test' || '' }}
+        run: |
+          [ -n "$TEST_DATABASE_URL" ] || unset TEST_DATABASE_URL
+          pytest -q
+
+  web:
+    name: Web build and typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build   # also generates next-env.d.ts, which the typecheck needs
+      - run: npm run typecheck
+
+  api:
+    name: API contract (Postman)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: recoverly
+          POSTGRES_PASSWORD: recoverly
+          POSTGRES_DB: recoverly
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U recoverly"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - run: pip install -c requirements.lock ".[voice,paypal,dev]"
+        working-directory: backend
+      - name: Start the backend with no API keys
+        working-directory: backend
+        env:
+          RECOVERLY_NO_ENV: "1"
+          DATABASE_URL: postgresql+asyncpg://recoverly:recoverly@localhost:5432/recoverly
+        run: |
+          nohup uvicorn app.main:app --port 8000 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:8000/health && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+      # Only the folders that need no keys and no earlier checkout: a fresh database has no runs yet.
+      - name: Run the collection
+        run: >-
+          npx --yes newman@6 run docs/postman/recoverly.postman_collection.json
+          --env-var baseUrl=http://localhost:8000
+          --folder "3. Journeys" --folder "4. Integrations"
+      - name: Backend log
+        if: failure()
+        run: cat "$RUNNER_TEMP/backend.log"
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
