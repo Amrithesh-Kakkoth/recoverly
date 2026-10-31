@@ -24,7 +24,8 @@ from app.journeys.engine import JourneyEngine
 from app.journeys.timers import TimerLoop
 from app.payments.links import PaymentLinks
 from app.voice.manager import VoiceCallManager, mark_interrupted_calls
-from app.voice.pipeline import run_bot
+from app.voice.phone import router as twilio_router
+from app.voice.pipeline import run_bot, run_phone_bot
 from app.voice.registry import LiveCalls
 from app.voice.stub import FakeCallManager
 from app.voice.tagger import openai_classifier
@@ -53,7 +54,7 @@ async def lifespan(_: FastAPI):
     if settings.voice_enabled:
         voice = VoiceCallManager(live=live, deps=PaymentDeps(channels),
                                  classify=openai_classifier(settings.llm_key, settings.llm_model, settings.llm_base_url),
-                                 bot_runner=run_bot)
+                                 bot_runner=run_bot, phone_runner=run_phone_bot)
         app.state.voice, call_manager = voice, voice
     else:  # no keys: scripted fake so journeys still run end to end
         app.state.voice, call_manager = None, FakeCallManager()
@@ -81,6 +82,7 @@ app.include_router(metrics_router)
 app.include_router(journeys_router)
 app.include_router(calls_router)
 app.include_router(demo_router)
+app.include_router(twilio_router)
 
 _demo = Path(REPO_ROOT) / "web" / "demo"
 if _demo.is_dir():

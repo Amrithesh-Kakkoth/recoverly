@@ -28,6 +28,7 @@ from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 
 from app.core.config import Settings, settings as default_settings
 from app.voice.gate import InjectionGate
@@ -92,9 +93,22 @@ def tools_schema(session: CallSession) -> ToolsSchema:
 
 def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: VoiceDeps,
                cfg: Settings = default_settings, merchant: str | None = None) -> PipelineWorker:
-    merchant = merchant or cfg.merchant_name
     transport = SmallWebRTCTransport(connection, params=TransportParams(
         audio_in_enabled=True, audio_out_enabled=True))
+    return assemble(session, transport, deps, cfg, merchant)
+
+
+def build_phone_task(session: CallSession, websocket, serializer, deps: VoiceDeps,
+                     cfg: Settings = default_settings, merchant: str | None = None) -> PipelineWorker:
+    """Same agent over a Twilio Media Streams websocket (8 kHz mu-law, handled by the serializer)."""
+    transport = FastAPIWebsocketTransport(websocket, params=FastAPIWebsocketParams(
+        audio_in_enabled=True, audio_out_enabled=True, add_wav_header=False, serializer=serializer))
+    return assemble(session, transport, deps, cfg, merchant)
+
+
+def assemble(session: CallSession, transport, deps: VoiceDeps, cfg: Settings,
+             merchant: str | None = None) -> PipelineWorker:
+    merchant = merchant or cfg.merchant_name
     stt = DeepgramSTTService(api_key=cfg.deepgram_api_key,
                              settings=DeepgramSTTService.Settings(model=cfg.stt_model))
     llm = OpenAILLMService(api_key=cfg.llm_key, base_url=cfg.llm_base_url or None,
@@ -192,4 +206,10 @@ def build_task(session: CallSession, connection: SmallWebRTCConnection, deps: Vo
 async def run_bot(session: CallSession, connection: SmallWebRTCConnection, deps: VoiceDeps,
                   cfg: Settings = default_settings) -> None:
     task = build_task(session, connection, deps, cfg)
+    await PipelineRunner(handle_sigint=False).run(task)
+
+
+async def run_phone_bot(session: CallSession, websocket, serializer, deps: VoiceDeps,
+                        cfg: Settings = default_settings) -> None:
+    task = build_phone_task(session, websocket, serializer, deps, cfg)
     await PipelineRunner(handle_sigint=False).run(task)
