@@ -39,22 +39,13 @@ class Links:
         return f"https://pay.test/{family_id}"
 
 
-class Registry:
-    def __init__(self):
-        self.injected: list[tuple[str, str]] = []
-
-    async def inject(self, call_id, text):
-        self.injected.append((call_id, text))
-        return True
-
-
 class H:
     """Test harness wiring an engine to fakes and a controllable clock."""
 
     def __init__(self, bus, family_paid=None):
-        self.clock, self.calls, self.chan, self.reg = FakeClock(), Calls(), Chan(), Registry()
+        self.clock, self.calls, self.chan = FakeClock(), Calls(), Chan()
         self.engine = JourneyEngine(channels={"web_inbox": self.chan}, call_manager=self.calls,
-                                    pay_links=Links(), registry=self.reg, clock=self.clock,
+                                    pay_links=Links(), clock=self.clock,
                                     family_paid=family_paid)
         self.engine.register(bus)
         self.timers = TimerLoop(self.engine)
@@ -108,10 +99,9 @@ async def test_paid_on_call_routes_to_thanks_even_if_agent_reports_no_answer(h):
     assert await h.tick(seconds=31) == 1
     assert (await h.run(rid)).status == "in_call" and h.calls.dialed == ["call-1"]
 
-    await h.pay()  # mid-call: deferred and injected, run stays on the call
+    await h.pay()  # mid-call: routing is deferred, the run stays on the call
     run = await h.run(rid)
     assert run.status == "in_call" and run.cursor == "call1"
-    assert h.reg.injected == [("call-1", "[PAYPAL EVENT] Payment captured: $49.00")]
 
     await h.complete_call(rid, "call-1", "no_answer")  # ctx.paid beats outcome routing
     run = await h.run(rid)
@@ -236,3 +226,29 @@ async def test_abandon_event_starts_a_run_and_respects_trigger_filter(h):
     assert await h.engine._active_run_for("F9") is None   # below amount_gte 20
     await h.bus.publish(high)
     assert await h.engine._active_run_for("F8") is not None
+
+
+async def test_restart_recovers_a_run_parked_on_a_call_that_no_longer_exists(bus):
+    """A live call lives in memory. After a restart its run must not stay in_call forever."""
+    h1 = H(bus)
+    rid = await h1.start(scale=3600)
+    await h1.tick(seconds=1)
+    assert (await h1.run(rid)).status == "in_call"
+
+    h2 = H(bus)                                             # "new process": nothing is live
+    h2.clock.t = h1.clock.t
+    assert await h2.engine.recover_orphaned_calls() == 1
+    run = await h2.run(rid)
+    assert run.status == "waiting" and "call.retry_scheduled" in await h2.timeline(rid)
+    assert await h2.engine.recover_orphaned_calls() == 0    # idempotent
+
+    await h2.tick(seconds=3)                                # the retry dials again
+    assert h2.calls.dialed == ["call-1"] and (await h2.run(rid)).attempts_json == {"call1": 2}
+
+
+async def test_recovery_leaves_calls_that_are_still_live_alone(bus):
+    h = H(bus)
+    rid = await h.start(scale=3600)
+    await h.tick(seconds=1)
+    assert await h.engine.recover_orphaned_calls(lambda call_id: call_id == "call-1") == 0
+    assert (await h.run(rid)).status == "in_call"

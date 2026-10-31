@@ -154,3 +154,13 @@ async def test_stream_items_survive_the_real_sse_encoder(fresh_hub):
     item = (await asyncio.wait_for(take(events("run:3", None), 1), 1))[0]
     wire = ServerSentEvent(**item).encode().decode()
     assert "event: timeline" in wire and "id: 1" in wire and "run.started" in wire
+
+
+async def test_api_timestamps_carry_a_utc_offset(bus, client):
+    """Regression: naive timestamps rendered hours off in the browser."""
+    h = H(bus)
+    _, v = await save_journey(sample())
+    rid = await h.engine.start_run(version_id=v, customer_id="c1", family_id="F1", context={"amount": "49.00"})
+    snap = (await client.get(f"/api/runs/{rid}")).json()
+    for ts in [snap["started_at"], snap["timeline"][0]["ts"]]:
+        assert ts.endswith("+00:00")
