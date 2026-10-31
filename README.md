@@ -95,6 +95,10 @@ Twilio calls the app back at `/twilio/voice/{call_id}` (TwiML) and `/twilio/stat
 `/twilio/ws`; each call has its own token and the webhooks verify Twilio's signature. Trial calls play a short
 "trial account" message first, and calling Indian mobiles from a US number may be filtered as spam.
 
+### Deploying
+
+See [docs/DEPLOY.md](docs/DEPLOY.md) for a single-VPS setup with HTTPS (Caddy) and WebRTC-friendly networking.
+
 ### Docker Compose
 
 `make up` builds and starts Postgres 16, the app and the Next.js dashboard (`WEB_PORT`, default 3000) (image is about 2.5 GB because of the voice

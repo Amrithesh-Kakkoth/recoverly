@@ -1,0 +1,12 @@
+# HTTPS for $DOMAIN (certificates are automatic). API traffic goes straight to the backend; the rest is the dashboard.
+{$DOMAIN} {
+	@backend path /api/* /shop/* /webhooks/* /twilio/* /health
+	handle @backend {
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1   # don't buffer server-sent events
+		}
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

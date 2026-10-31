@@ -1,0 +1,33 @@
+# Single-VPS production overlay:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# The app and Caddy use host networking so WebRTC's UDP media reaches the browser without a port-mapping dance;
+# Postgres and the dashboard listen on localhost only, and Caddy is the one public entry point (80/443).
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    ports: !override ["127.0.0.1:5432:5432"]
+  app:
+    network_mode: host
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgresql+asyncpg://recoverly:${DB_PASSWORD:?set DB_PASSWORD in .env}@127.0.0.1:5432/recoverly
+      PUBLIC_BASE_URL: https://${DOMAIN:?set DOMAIN in .env}
+      DASHBOARD_URL: https://${DOMAIN}
+    restart: unless-stopped
+  web:
+    build:
+      args:
+        BACKEND_URL: http://host.docker.internal:8000
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: !override ["127.0.0.1:3000:3000"]
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data"]
+    depends_on: [app, web]
+    restart: unless-stopped
+volumes:
+  caddy_data:
