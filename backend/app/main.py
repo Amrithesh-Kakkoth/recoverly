@@ -68,11 +68,9 @@ async def lifespan(_: FastAPI):
     detector = AbandonDetector()
     detector_task = asyncio.create_task(detector.run())
     await reprocess_pending()
-    notifier_task = (asyncio.create_task(RecoveryNotifier().run())
-                     if settings.outbound_webhook_url else None)
+    notifier_task = asyncio.create_task(RecoveryNotifier().run())
     yield
-    if notifier_task:
-        notifier_task.cancel()
+    notifier_task.cancel()
     timers.stop()
     detector.stop()
     await asyncio.gather(loop_task, detector_task)

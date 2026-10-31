@@ -97,7 +97,7 @@ async def test_test_endpoint(monkeypatch):
 
         monkeypatch.setattr(integrations, "post", fake_post)
         assert (await c.post("/api/integrations/webhook/test")).json() == {"ok": True}
-        assert sent[0]["sample"] is True and (await c.get("/api/integrations")).json() == {"outbound_webhook": True}
+        assert sent[0]["sample"] is True and (await c.get("/api/integrations")).json() == {"outbound_webhook": True, "slack": False}
 
 
 async def test_other_merchants_results_never_go_to_the_operators_webhook():
