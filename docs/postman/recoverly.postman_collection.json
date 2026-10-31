@@ -1,0 +1,554 @@
+{
+  "info": {
+    "name": "Recoverly API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Backend API plus the PayPal sandbox calls it makes. Set baseUrl (default http://localhost:8000). Run folder 1 then 2 in order: checkout stores family_id/order_id, the runs request stores run_id. PayPal sandbox credentials go in the environment's paypalClientId / paypalSecret (never commit them)."
+  },
+  "item": [
+    {
+      "name": "1. Demo & storefront",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.test('ok', () => pm.expect(pm.response.json().ok).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demo config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/demo-config"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ICE servers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/ice"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.test('has iceServers', () => pm.expect(pm.response.json().iceServers).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout (creates a PayPal sandbox order)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/shop/checkout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Asha\",\n  \"phone\": \"+919876543210\",\n  \"sku\": \"pro-plan\",\n  \"whatsapp_optin\": true,\n  \"call_consent\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Creates the customer and a sandbox order, and schedules the abandon timer. Open approve_url to pay as the sandbox buyer, or close it unpaid to start recovery."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('family_id', j.family_id);",
+                  "pm.collectionVariables.set('order_id', j.order_id);",
+                  "pm.collectionVariables.set('customer_id', j.customer_id);",
+                  "pm.test('amount comes from the server catalog', () => pm.expect(j.amount).to.eql('49.00'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Runs, calls & metrics",
+      "item": [
+        {
+          "name": "List runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/runs?limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "const r = pm.response.json();",
+                  "if (r.length) pm.collectionVariables.set('run_id', r[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get run (timeline + messages)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/runs/{{run_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "const j = pm.response.json();",
+                  "pm.test('has timeline and last_event_id', () => { pm.expect(j.timeline).to.be.an('array'); pm.expect(j).to.have.property('last_event_id'); });",
+                  "const d = j.timeline.find(e => e.kind === 'call.dialed'); if (d) pm.collectionVariables.set('call_id', d.payload.call_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer messages (web inbox)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/customers/{{customer_id}}/messages"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get call (transcript, tools, latency)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/calls/{{call_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('found, or no call has been dialed yet', () => pm.expect([200, 404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Metrics (KPIs)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.test('has KPI fields', () => { const m = pm.response.json(); ['runs_total','recovered','recovered_revenue'].forEach(k => pm.expect(m).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Journeys",
+      "item": [
+        {
+          "name": "List journeys (active version + summary)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/journeys"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "const j = pm.response.json(); if (j.length) pm.collectionVariables.set('journey_id', j[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compile plain English",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/journeys/compile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Send a WhatsApp reminder, wait 20 minutes, then call once. Offer up to 5% off. If they don't pick up, give up.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Needs an LLM key on the server (503 otherwise). Returns the definition, lint errors and a generated summary."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('compiled or LLM not configured', () => pm.expect([200, 503]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save a journey version",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/journeys",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"journey_id\": \"{{journey_id}}\",\n  \"source_prompt\": \"from Postman\",\n  \"definition\": {\n    \"name\": \"Quick recovery\",\n    \"trigger\": {\n      \"event\": \"checkout.abandoned\",\n      \"filter\": {\n        \"amount_gte\": 20\n      }\n    },\n    \"on_events\": [\n      {\n        \"event\": \"payment.captured\",\n        \"goto\": \"thanks\"\n      }\n    ],\n    \"start\": \"call1\",\n    \"steps\": {\n      \"call1\": {\n        \"type\": \"call\",\n        \"objective\": \"Help the customer complete the purchase\",\n        \"tools\": [\n          \"send_payment_link\",\n          \"check_payment_status\",\n          \"end_call\"\n        ],\n        \"max_attempts\": 1,\n        \"next_by_outcome\": {\n          \"paid\": \"thanks\"\n        },\n        \"default\": \"lost\"\n      },\n      \"thanks\": {\n        \"type\": \"message\",\n        \"channel\": \"whatsapp\",\n        \"template\": \"thank_you\",\n        \"next\": \"won\"\n      },\n      \"won\": {\n        \"type\": \"end\",\n        \"result\": \"recovered\"\n      },\n      \"lost\": {\n        \"type\": \"end\",\n        \"result\": \"lost\"\n      }\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Lints first; a bad journey returns 422 with the errors. NOTE: this creates a new active version."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('saved or rejected with lint errors', () => pm.expect([200, 422]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Integrations",
+      "item": [
+        {
+          "name": "Integration status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/integrations"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send a test to the outbound webhook (Zapier)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/integrations/webhook/test",
+            "description": "Sends a sample 'recovered' payload to OUTBOUND_WEBHOOK_URL so a Zap can learn the fields. 409 if the URL isn't set."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('sent or not configured', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. PayPal sandbox (direct)",
+      "item": [
+        {
+          "name": "Get access token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paypalBaseUrl}}/v1/oauth2/token",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{paypalClientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{paypalSecret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.collectionVariables.set('paypalAccessToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{paypalBaseUrl}}/v2/checkout/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intent\": \"CAPTURE\",\n  \"purchase_units\": [\n    {\n      \"amount\": {\n        \"currency_code\": \"USD\",\n        \"value\": \"49.00\"\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+                  "pm.collectionVariables.set('paypal_order_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paypalBaseUrl}}/v2/checkout/orders/{{paypal_order_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Capture order (after the sandbox buyer approves)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{paypalBaseUrl}}/v2/checkout/orders/{{paypal_order_id}}/capture",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('captured or not yet approved', () => pm.expect([201, 422]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "family_id",
+      "value": ""
+    },
+    {
+      "key": "order_id",
+      "value": ""
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "run_id",
+      "value": ""
+    },
+    {
+      "key": "call_id",
+      "value": ""
+    },
+    {
+      "key": "journey_id",
+      "value": ""
+    },
+    {
+      "key": "paypal_order_id",
+      "value": ""
+    },
+    {
+      "key": "paypalAccessToken",
+      "value": ""
+    }
+  ]
+}
