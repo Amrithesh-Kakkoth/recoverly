@@ -51,3 +51,26 @@ export interface Call {
   summary?: string | null;
   overridden_by?: string | null;
 }
+
+export interface DemoConfig {
+  abandon_after_seconds: number;
+  voice_enabled: boolean;
+  buyer?: { email: string; password: string };
+}
+
+export interface CheckoutResult {
+  customer_id: string;
+  family_id: string;
+  order_id: string;
+  amount: string;
+  approve_url: string;
+  abandon_after_seconds: number;
+}
+
+export interface CheckoutInput {
+  name: string;
+  phone: string;
+  sku: string;
+  whatsapp_optin: boolean;
+  call_consent: boolean;
+}
