@@ -30,3 +30,6 @@ sandbox-accounts.csv
 web/.next/
 web/next-env.d.ts
 *.tsbuildinfo
+
+# deploy state on the server
+.deployed-sha

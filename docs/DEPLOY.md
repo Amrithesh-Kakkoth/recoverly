@@ -28,6 +28,7 @@ Edit `.env`:
 - optional: `OUTBOUND_WEBHOOK_URL` (Zapier), `TURN_ICE_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL`, Twilio settings
 
 ## 3. Start
+Set up [CI/CD](#cicd-github-actions) below and run the **Deploy** workflow. To build on the server instead (slower, no rollback):
 ```
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f app
@@ -48,3 +49,29 @@ In the PayPal developer dashboard (sandbox app) add a webhook to `https://demo.y
 `docker-compose.prod.yml` puts the app and Caddy on the host network so WebRTC media reaches the server directly; Postgres and
 the dashboard listen on localhost only. `deploy/Caddyfile` sends `/api`, `/shop`, `/webhooks`, `/twilio` and `/health` to the
 backend (port 8000) and everything else to the dashboard (port 3000).
+
+## CI/CD (GitHub Actions)
+| Workflow | Runs | Does |
+|---|---|---|
+| `CI` | every PR and push to `main` | backend tests on SQLite and Postgres, web build and typecheck, Postman contract run, secret scan |
+| `Docker check` | PRs that touch images or Compose | validates Compose and builds both images |
+| `Publish images` | push to `main` | pushes `ghcr.io/amrithesh-kakkoth/recoverly-{app,web}` tagged with the commit SHA and `latest` |
+| `Deploy` | by hand (Actions tab) | pulls one commit's images on the server, checks health, rolls back on failure |
+
+CI uses no real API keys and calls no paid service. `.env` stays on the server. Deploying restarts the backend and drops any call in
+progress, so avoid deploying during judging unless you need to. A schema change still means dropping tables by hand, because there
+are no migrations yet.
+
+One-time setup:
+1. On the server, let your user run Docker, then log out and back in: `sudo usermod -aG docker $USER`
+2. On your own machine, make a key used only for deploys: `ssh-keygen -t ed25519 -f recoverly_deploy -N ""`. Add the contents of
+   `recoverly_deploy.pub` to `~/.ssh/authorized_keys` on the server.
+3. In GitHub go to **Settings → Environments**, create `production`, and optionally add yourself as a required reviewer.
+4. In that environment add these **secrets**: `DEPLOY_HOST` (server IP), `DEPLOY_USER`, `DEPLOY_SSH_KEY` (contents of `recoverly_deploy`),
+   and `DEPLOY_KNOWN_HOSTS` (output of `ssh-keyscan -t ed25519 <server IP>`, checked against the server's real key).
+5. Add these **variables**: `DEPLOY_URL` (`https://demo.yourdomain.com`), and `DEPLOY_PATH` if the repo isn't at `~/recoverly`.
+6. Once CI has run once, go to **Settings → Branches** and protect `main`: require a PR and these checks: `Backend tests (sqlite)`,
+   `Backend tests (postgres)`, `Web build and typecheck`, `API contract (Postman)`, `Secret scan`.
+
+To deploy: **Actions → Deploy → Run workflow**. Leave the SHA blank for the latest commit, after `Publish images` has finished for it.
+To roll back by hand, run it again with an earlier commit's SHA.

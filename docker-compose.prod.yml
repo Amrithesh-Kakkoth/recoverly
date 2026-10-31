@@ -1,4 +1,5 @@
-# Single-VPS production overlay:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Single-VPS production overlay. Normally deployed by the Deploy workflow (deploy/deploy.sh), which sets IMAGE_TAG;
+# to build on the server instead:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # The app and Caddy use host networking so WebRTC's UDP media reaches the browser without a port-mapping dance;
 # Postgres and the dashboard listen on localhost only, and Caddy is the one public entry point (80/443).
 services:
@@ -7,14 +8,17 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports: !override ["127.0.0.1:5432:5432"]
   app:
+    image: ghcr.io/amrithesh-kakkoth/recoverly-app:${IMAGE_TAG:-latest}
     network_mode: host
     ports: !reset []
+    volumes: !reset []   # run the code in the image, not a checkout
     environment:
       DATABASE_URL: postgresql+asyncpg://recoverly:${DB_PASSWORD:?set DB_PASSWORD in .env}@127.0.0.1:5432/recoverly
       PUBLIC_BASE_URL: https://${DOMAIN:?set DOMAIN in .env}
       DASHBOARD_URL: https://${DOMAIN}
     restart: unless-stopped
   web:
+    image: ghcr.io/amrithesh-kakkoth/recoverly-web:${IMAGE_TAG:-latest}
     build:
       args:
         BACKEND_URL: http://host.docker.internal:8000
