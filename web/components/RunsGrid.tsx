@@ -4,33 +4,36 @@ import { AgGridReact } from "ag-grid-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/Badge";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import type { Run } from "@/lib/types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-// Colours come from the app's CSS variables, so the grid follows light/dark mode with the rest of the UI.
 const theme = themeQuartz.withParams({
   backgroundColor: "var(--panel)",
   foregroundColor: "var(--ink)",
   borderColor: "var(--line)",
   headerBackgroundColor: "var(--panel)",
   headerTextColor: "var(--muted)",
+  headerFontWeight: 500,
   oddRowBackgroundColor: "transparent",
   accentColor: "var(--accent)",
   fontFamily: "inherit",
-  fontSize: 14,
+  fontSize: 15,
+  wrapperBorderRadius: 10,
 });
 
 const columns: ColDef<Run>[] = [
   { field: "id", headerName: "Run", width: 100, sort: "desc",
-    cellRenderer: (p: ICellRendererParams<Run>) => <Link className="font-medium text-accent hover:underline" href={`/runs/${p.value}`}>#{p.value}</Link> },
+    cellRenderer: (p: ICellRendererParams<Run>) => <Link className="link font-mono text-sm" href={`/runs/${p.value}`}>#{p.value}</Link> },
+  { field: "customer_name", headerName: "Customer", flex: 1, minWidth: 160, valueFormatter: (p) => p.value ?? "—" },
   { headerName: "Status", valueGetter: (p) => p.data?.close_reason ?? p.data?.status ?? "", width: 150,
     cellRenderer: (p: ICellRendererParams<Run>) => <Badge>{String(p.value)}</Badge> },
-  { field: "cursor", headerName: "Step", width: 140, valueFormatter: (p) => p.value ?? "—" },
-  { field: "started_at", headerName: "Started", flex: 1, minWidth: 160, valueFormatter: (p) => fmtDate(p.value),
-    comparator: (a, b) => Date.parse(a ?? "") - Date.parse(b ?? "") },
-  { field: "ended_at", headerName: "Ended", flex: 1, minWidth: 160, valueFormatter: (p) => fmtDate(p.value),
+  { field: "cursor", headerName: "Step", width: 130, cellClass: "text-muted", valueFormatter: (p) => p.value ?? "—" },
+  { field: "amount", headerName: "Amount", width: 120, type: "rightAligned", cellClass: "font-mono text-sm",
+    comparator: (a, b) => Number(a ?? 0) - Number(b ?? 0),
+    valueFormatter: (p) => (p.value ? fmtMoney(p.value, p.data?.currency ?? null) : "—") },
+  { field: "started_at", headerName: "Started", flex: 1, minWidth: 160, cellClass: "text-muted", valueFormatter: (p) => fmtDate(p.value),
     comparator: (a, b) => Date.parse(a ?? "") - Date.parse(b ?? "") },
 ];
 
@@ -39,13 +42,18 @@ export function RunsGrid({ runs }: { runs: Run[] }) {
   const defaultColDef = useMemo<ColDef>(() => ({ sortable: true, filter: true, resizable: true }), []);
 
   return (
-    <div>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search runs…"
-        className="mb-3 w-full max-w-xs rounded-lg border border-line bg-panel px-3 py-1.5 text-sm" />
-      <div style={{ height: Math.min(560, 56 + runs.length * 42) }}>
-        <AgGridReact<Run> theme={theme} rowData={runs} columnDefs={columns} defaultColDef={defaultColDef}
-          quickFilterText={filter} getRowId={(p) => String(p.data.id)} rowHeight={42} />
+    <section aria-labelledby="runs-heading" className="mt-9">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 id="runs-heading" className="text-2xl font-semibold tracking-[-0.015em]">Recovery runs</h1>
+        <label className="flex items-center gap-2 text-sm text-muted">Search
+          <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Customer or run"
+            className="h-11 w-60 max-w-full rounded-lg border border-line-strong bg-white px-3 text-ink" />
+        </label>
       </div>
-    </div>
+      <div style={{ height: Math.min(600, 58 + runs.length * 46) }}>
+        <AgGridReact<Run> theme={theme} rowData={runs} columnDefs={columns} defaultColDef={defaultColDef}
+          quickFilterText={filter} getRowId={(p) => String(p.data.id)} rowHeight={46} />
+      </div>
+    </section>
   );
 }

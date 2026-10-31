@@ -108,7 +108,7 @@ def build_phone_task(session: CallSession, websocket, serializer, deps: VoiceDep
 
 def assemble(session: CallSession, transport, deps: VoiceDeps, cfg: Settings,
              merchant: str | None = None) -> PipelineWorker:
-    merchant = merchant or cfg.merchant_name
+    merchant = merchant or session.merchant_name or cfg.merchant_name
     stt = DeepgramSTTService(api_key=cfg.deepgram_api_key,
                              settings=DeepgramSTTService.Settings(model=cfg.stt_model))
     llm = OpenAILLMService(api_key=cfg.llm_key, base_url=cfg.llm_base_url or None,

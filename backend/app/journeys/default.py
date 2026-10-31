@@ -32,10 +32,11 @@ DEFAULT_JOURNEY = {
 }
 
 
-async def ensure_default_journey() -> bool:
+async def ensure_default_journey(merchant_id: int | None = None) -> bool:
     """True if it had to create one. Never touches an existing journey."""
     async with db.session() as s:
-        if await s.scalar(select(func.count()).select_from(JourneyRecord)):
+        if await s.scalar(select(func.count()).select_from(JourneyRecord).where(
+                JourneyRecord.merchant_id.is_not_distinct_from(merchant_id))):
             return False
-    await save_journey(DEFAULT_JOURNEY)
+    await save_journey(DEFAULT_JOURNEY, merchant_id=merchant_id)
     return True

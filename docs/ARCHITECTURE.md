@@ -1,5 +1,7 @@
 # Recoverly — Architecture (v2)
 
+> Since this was written: the dashboard is Next.js, not a React SPA, and merchant accounts now scope all data (see the README).
+
 PayPal AI Hackathon 2026 · callback voice agent + customer journeys
 Status: architect design v1, revised after independent review. Working name only.
 

@@ -1,9 +1,18 @@
 // Mirrors the dicts built in backend/app/api/runs.py and calls.py.
 export type RunStatus = string;
 
+export interface Merchant {
+  id: number;
+  email: string;
+  store_name: string;
+}
+
 export interface Run {
   id: number;
   customer_id: string;
+  customer_name: string | null;
+  amount: string | null;
+  currency: string | null;
   family_id: string;
   status: RunStatus;
   cursor: string | null;

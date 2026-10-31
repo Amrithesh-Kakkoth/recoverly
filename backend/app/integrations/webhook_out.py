@@ -10,6 +10,7 @@ from decimal import Decimal
 
 import httpx
 
+from app.accounts.service import demo_merchant_id
 from app.api.models import Customer
 from app.core import sse
 from app.core.config import Settings, settings as default_settings
@@ -24,6 +25,9 @@ async def build_payload(run_id: int, cfg: Settings = default_settings) -> dict |
         run = await s.get(JourneyRun, run_id)
         cust = await s.get(Customer, run.customer_id) if run else None
     if run is None:
+        return None
+    # OUTBOUND_WEBHOOK_URL is the operator's, so only the demo store's results go to it.
+    if run.merchant_id is not None and run.merchant_id != await demo_merchant_id():
         return None
     ctx = run.context_json or {}
     amount = ctx.get("amount")

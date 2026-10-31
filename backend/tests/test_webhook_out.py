@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import httpx
 from httpx import ASGITransport, AsyncClient
 
+from app.accounts.models import Merchant
 from app.api.models import Customer
 from app.core import sse
 from app.core.config import Settings
@@ -12,6 +13,7 @@ from app.core.db import db
 from app.integrations.webhook_out import RecoveryNotifier, build_payload, post
 from app.journeys.models import JourneyRecord, JourneyRun, JourneyVersion
 from app.main import app
+from tests.conftest import sign_in
 
 CFG = Settings(outbound_webhook_url="https://hooks.example.com/x", dashboard_url="https://dash.example.com")
 
@@ -82,6 +84,8 @@ async def test_post_retries_then_gives_up_without_raising():
 async def test_test_endpoint(monkeypatch):
     from app.api import integrations
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        assert (await c.post("/api/integrations/webhook/test")).status_code == 401
+        await sign_in(c)
         monkeypatch.setattr(integrations.settings, "outbound_webhook_url", "")
         assert (await c.post("/api/integrations/webhook/test")).status_code == 409
         monkeypatch.setattr(integrations.settings, "outbound_webhook_url", "https://x")
@@ -94,3 +98,13 @@ async def test_test_endpoint(monkeypatch):
         monkeypatch.setattr(integrations, "post", fake_post)
         assert (await c.post("/api/integrations/webhook/test")).json() == {"ok": True}
         assert sent[0]["sample"] is True and (await c.get("/api/integrations")).json() == {"outbound_webhook": True}
+
+
+async def test_other_merchants_results_never_go_to_the_operators_webhook():
+    rid = await make_run()
+    async with db.session() as s:
+        s.add(Merchant(id=77, email="store@example.com", password_hash="!", store_name="S"))
+        await s.flush()
+        (await s.get(JourneyRun, rid)).merchant_id = 77
+        await s.commit()
+    assert await build_payload(rid, CFG) is None

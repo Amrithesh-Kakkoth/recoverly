@@ -1,10 +1,11 @@
 """Integration settings the dashboard can show, and a test button for the outbound webhook."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.access import current_merchant
 from app.core.config import settings
 from app.integrations.webhook_out import post, sample_payload
 
-router = APIRouter(prefix="/api/integrations")
+router = APIRouter(prefix="/api/integrations", dependencies=[Depends(current_merchant)])
 
 
 @router.get("")

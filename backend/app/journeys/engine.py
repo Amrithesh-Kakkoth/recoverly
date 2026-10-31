@@ -69,7 +69,8 @@ class JourneyEngine:
         async with db.session() as s:
             version = await s.get(JourneyVersion, version_id)
             journey = Journey.model_validate(version.definition_json)
-            run = JourneyRun(journey_version_id=version_id, customer_id=customer_id,
+            owner = await s.get(JourneyRecord, version.journey_id)
+            run = JourneyRun(merchant_id=owner.merchant_id, journey_version_id=version_id, customer_id=customer_id,
                              family_id=family_id, status="running", cursor=journey.start,
                              context_json=context or {}, attempts_json={},
                              time_scale=time_scale or settings.time_scale, started_at=self.clock())
@@ -94,10 +95,13 @@ class JourneyEngine:
         if not (customer_id and family_id):
             return
         async with db.session() as s:
+            customer = await s.get(Customer, customer_id)
+            merchant_id = customer.merchant_id if customer else None  # only this store's journeys may run
             rows = (await s.execute(
                 select(JourneyVersion).join(JourneyRecord, (JourneyRecord.id == JourneyVersion.journey_id)
                                             & (JourneyRecord.active_version == JourneyVersion.version))
-                .where(JourneyRecord.trigger_event == event.type))).scalars().all()
+                .where(JourneyRecord.trigger_event == event.type,
+                       JourneyRecord.merchant_id.is_not_distinct_from(merchant_id)))).scalars().all()
         for v in rows:
             if Journey.model_validate(v.definition_json).trigger_matches(event):
                 await self.start_run(
@@ -321,17 +325,19 @@ class JourneyEngine:
     def _tl(self, s: AsyncSession, run: JourneyRun, kind: str, **payload) -> None:
         ev = TimelineEvent(run_id=run.id, kind=kind, payload_json=payload, ts=self.clock())
         s.add(ev)
-        s.info.setdefault("sse", []).append(ev)
+        s.info.setdefault("sse", []).append((ev, run.merchant_id))
 
     async def _commit(self, s: AsyncSession) -> None:
         """Commit, then publish: subscribers only ever see state that is durable."""
         await s.commit()
-        for ev in s.info.pop("sse", []):
+        for ev, merchant_id in s.info.pop("sse", []):
             data = {"id": ev.id, "run_id": ev.run_id, "kind": ev.kind,
                     "payload": ev.payload_json, "ts": ev.ts}
             self.hub.publish(f"run:{ev.run_id}", "timeline", data)
             if ev.kind in ("run.started", "run.ended"):
                 self.hub.publish("global", ev.kind, data)
+                if merchant_id is not None:
+                    self.hub.publish(f"merchant:{merchant_id}", ev.kind, data)
 
     async def _open_step(self, c: _Ctx, step_id: str) -> None:
         sr = StepRun(run_id=c.run.id, step_id=step_id, status="running")

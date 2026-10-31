@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.api.access import visible_call
 from app.core.db import db
 from app.voice.models import Call, Outcome
 
@@ -35,10 +36,12 @@ def _manager(request: Request):
 
 
 @router.post("/{call_id}/offer")
-async def answer(call_id: str, offer: Offer, request: Request) -> dict:
+async def answer(call_id: str, offer: Offer, request: Request, family: str | None = None) -> dict:
     from pipecat.transports.smallwebrtc.request_handler import SmallWebRTCRequest
+    manager = _manager(request)
+    await visible_call(call_id, request, family)
     try:
-        out = await _manager(request).answer(call_id, SmallWebRTCRequest(**offer.model_dump()))
+        out = await manager.answer(call_id, SmallWebRTCRequest(**offer.model_dump()))
     except LookupError:
         raise HTTPException(404, "no such ringing call")
     except ValueError as e:
@@ -47,9 +50,10 @@ async def answer(call_id: str, offer: Offer, request: Request) -> dict:
 
 
 @router.patch("/{call_id}/offer")
-async def ice(call_id: str, patch: IcePatch, request: Request) -> dict:
+async def ice(call_id: str, patch: IcePatch, request: Request, family: str | None = None) -> dict:
     from pipecat.transports.smallwebrtc.request_handler import IceCandidate, SmallWebRTCPatchRequest
     m = _manager(request)
+    await visible_call(call_id, request, family)
     await m._request_handler().handle_patch_request(SmallWebRTCPatchRequest(
         pc_id=patch.pc_id, candidates=[IceCandidate(c.candidate, c.sdp_mid, c.sdp_mline_index)
                                        for c in patch.candidates]))
@@ -57,7 +61,8 @@ async def ice(call_id: str, patch: IcePatch, request: Request) -> dict:
 
 
 @router.get("/{call_id}")
-async def get_call(call_id: str, request: Request) -> dict:
+async def get_call(call_id: str, request: Request, family: str | None = None) -> dict:
+    await visible_call(call_id, request, family)
     live = getattr(request.app.state, "live_calls", None)
     sess = live.get(call_id) if live else None
     if sess is not None:  # in progress: serve live state

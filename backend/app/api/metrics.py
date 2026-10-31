@@ -5,9 +5,11 @@ control cohort (every abandoned cart gets a journey)."""
 from decimal import Decimal
 from statistics import median
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 
+from app.accounts.models import Merchant
+from app.api.access import current_merchant
 from app.core.db import db
 from app.journeys.models import JourneyRun, TimelineEvent
 from app.journeys.timeutil import utc
@@ -18,9 +20,9 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/metrics")
-async def metrics() -> dict:
+async def metrics(merchant: Merchant = Depends(current_merchant)) -> dict:
     async with db.session() as s:
-        runs = (await s.scalars(select(JourneyRun))).all()
+        runs = (await s.scalars(select(JourneyRun).where(JourneyRun.merchant_id == merchant.id))).all()
         recovered = [r for r in runs if r.close_reason == "recovered"]
         families = [r.family_id for r in recovered]
         revenue = Decimal(0)
@@ -37,7 +39,8 @@ async def metrics() -> dict:
                 TimelineEvent.kind == "event.payment_captured",
                 TimelineEvent.run_id.in_([r.id for r in recovered])).group_by(TimelineEvent.run_id))
             paid_at = dict(rows.all())
-        calls = await s.scalar(select(func.count()).select_from(Call)) or 0
+        calls = await s.scalar(select(func.count()).select_from(Call).where(
+            Call.run_id.in_([r.id for r in runs]))) or 0
 
     secs = [(utc(paid_at[r.id]) - utc(r.started_at)).total_seconds() for r in recovered if r.id in paid_at]
     ended = [r for r in runs if r.status == "done"]

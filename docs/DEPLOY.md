@@ -25,6 +25,7 @@ Edit `.env`:
 - `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`
 - `ABANDON_AFTER_SECONDS=90` and `TIME_SCALE=600` so a demo finishes in minutes (journey waits are divided by this, so a larger number means shorter waits)
 - `DEMO_BUYER_EMAIL` / `DEMO_BUYER_PASSWORD`: the sandbox buyer shown on the Try it page
+- `DEMO_MERCHANT_PASSWORD`: a password judges can use to sign in as `DEMO_MERCHANT_EMAIL` and see the Try it runs
 - optional: `OUTBOUND_WEBHOOK_URL` (Zapier), `TURN_ICE_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL`, Twilio settings
 
 ## 3. Start
@@ -75,6 +76,15 @@ One-time setup:
 
 To deploy: **Actions → Deploy → Run workflow**. Leave the SHA blank for the latest commit, after `Publish images` has finished for it.
 To roll back by hand, run it again with an earlier commit's SHA.
+
+## Resetting the database after a schema change
+There are no migrations yet: tables are only created when missing, so a new column needs the tables rebuilt, **which deletes all
+data**. Back up first (below), then on the server, from the repo folder:
+```
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop app
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db psql -U recoverly -d recoverly -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+```
+Then run **Deploy**, which recreates the tables and the demo merchant. The HTTPS certificate is in a separate volume and is kept.
 
 ## Database backups
 Postgres runs in a Docker volume on the server. It survives restarts and deploys, but not losing the disk, so back it up.

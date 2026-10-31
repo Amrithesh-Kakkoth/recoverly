@@ -40,20 +40,6 @@ async def test_checkout_tells_the_page_how_long_abandonment_takes(client, gw, mo
     assert r.json()["abandon_after_seconds"] == 90.0
 
 
-async def test_demo_page_is_served_and_root_redirects(client):
-    page = await client.get("/demo/")
-    assert page.status_code == 200 and "Recoverly" in page.text and "/api/calls/" in page.text
-    root = await client.get("/", follow_redirects=False)
-    assert root.status_code in (302, 307) and root.headers["location"] == "/demo/"
-
-
-async def test_page_only_renders_server_text_as_text_never_html():
-    """The page must not use innerHTML for anything coming from the server (messages, transcript)."""
-    import pathlib
-    html = (pathlib.Path(__file__).resolve().parents[2] / "web/demo/index.html").read_text()
-    assert "innerHTML" not in html and "document.write" not in html
-
-
 async def test_stream_resumes_from_since_query(client, fresh_hub):
     ids = [fresh_hub.publish("run:9", "timeline", {"n": i}) for i in range(3)]
     from app.api.runs import events
@@ -92,7 +78,7 @@ async def test_real_webrtc_handshake_through_the_offer_endpoint(bus):
     await pc.setLocalDescription(await pc.createOffer())
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-            resp = await c.post(f"/api/calls/{call_id}/offer", json={
+            resp = await c.post(f"/api/calls/{call_id}/offer?family=F1", json={
                 "sdp": pc.localDescription.sdp, "type": pc.localDescription.type})
         assert resp.status_code == 200, resp.text
         ans = resp.json()

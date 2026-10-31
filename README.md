@@ -42,7 +42,8 @@ Modular monolith. Modules talk only through `app/core/events.py` (bus) and `app/
 | `voice` | Pipecat bots, live registry, injection gate, tools, tagger |
 | `channels` | WhatsApp (Twilio), web inbox |
 | `api` | REST, SSE, storefront backend |
-| `web/` | Next.js dashboard (runs, KPIs, journey builder) and the "Try it" wizard; `web/demo` is the older static page |
+| `accounts` | merchants, password hashing, sessions, the demo merchant |
+| `web/` | Next.js merchant dashboard (runs, KPIs, journey builder) and the public "Try it" wizard |
 
 ## Run locally
 
@@ -53,13 +54,13 @@ psql -d postgres -c "CREATE ROLE recoverly LOGIN PASSWORD 'recoverly'"
 psql -d postgres -c "CREATE DATABASE recoverly OWNER recoverly"
 psql -d postgres -c "CREATE DATABASE recoverly_test OWNER recoverly"
 cp .env.example .env            # then fill in the PayPal sandbox and voice keys
-cd backend && .venv/bin/uvicorn app.main:app --port 8000     # demo at http://localhost:8000/demo/
+cd backend && .venv/bin/uvicorn app.main:app --port 8000
 ```
 
 The dashboard is a separate Next.js app that proxies `/api` and `/shop` to the backend (`BACKEND_URL`, default `http://localhost:8000`):
 
 ```
-cd web && npm install && npm run dev      # http://localhost:3000  (Journeys, Try it)
+cd web && npm install && npm run dev      # http://localhost:3000  (sign up, or /try for the public demo)
 ```
 
 The journey builder's "Generate" button needs an LLM key (`OPENAI_API_KEY` or `LLM_API_KEY`).
@@ -70,6 +71,14 @@ webhooks and recovers runs whose live call was cut off by the restart.
 
 `make test` runs the suite on in-memory SQLite; `make test-pg` runs the same suite on
 `recoverly_test`.
+
+### Accounts
+
+Merchants sign up with an email and password at `/signup`, and each one only sees its own runs, calls, journeys and KPIs.
+Passwords are hashed with scrypt, and sessions are HttpOnly cookies backed by the database. There is no password reset yet.
+`/try` needs no account: those runs belong to a demo merchant (`DEMO_MERCHANT_EMAIL`), which can only be signed in to if
+`DEMO_MERCHANT_PASSWORD` is set. A signed-in merchant's own `/try` checkouts count as that merchant's.
+`OUTBOUND_WEBHOOK_URL` only receives the demo merchant's results, since it isn't per merchant yet.
 
 ### Integrations
 

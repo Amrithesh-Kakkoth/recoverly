@@ -10,6 +10,7 @@ class JourneyRecord(Base):
     __tablename__ = "journeys"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchants.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     trigger_event: Mapped[str] = mapped_column(String(48))
     active_version: Mapped[int | None] = mapped_column()
@@ -34,6 +35,7 @@ class JourneyRun(Base):
                             sqlite_where=text("status != 'done'")),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchants.id"), index=True)
     journey_version_id: Mapped[int] = mapped_column(ForeignKey("journey_versions.id"))
     customer_id: Mapped[str] = mapped_column(String(64))
     family_id: Mapped[str] = mapped_column(String(64))

@@ -10,6 +10,7 @@ export function useStream(
   events: string[],
   onEvent: (name: string, data: any) => void,
   since?: number,
+  family?: string,
 ) {
   const handler = useRef(onEvent);
   handler.current = onEvent;
@@ -17,11 +18,11 @@ export function useStream(
 
   useEffect(() => {
     if (!channel || since === undefined) return;
-    const url = `/api/stream/${encodeURIComponent(channel)}?since=${since}`;
+    const url = `/api/stream/${encodeURIComponent(channel)}?since=${since}${family ? `&family=${encodeURIComponent(family)}` : ""}`;
     const es = new EventSource(url);
     for (const name of names.split(",")) {
       es.addEventListener(name, (e) => handler.current(name, JSON.parse((e as MessageEvent).data)));
     }
     return () => es.close();
-  }, [channel, names, since]);
+  }, [channel, names, since, family]);
 }

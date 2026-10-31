@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 from app.journeys.compiler import compile_journey, summarize
 from app.journeys.default import DEFAULT_JOURNEY
 from app.main import app
+from tests.conftest import sign_in
 
 GOOD = json.dumps(DEFAULT_JOURNEY)
 BAD = json.dumps({**DEFAULT_JOURNEY, "start": "nowhere"})
@@ -48,12 +49,13 @@ def test_summary_is_generated_from_the_json():
 
 async def test_api_save_list_and_compile():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        await sign_in(c)
         bad = await c.post("/api/journeys", json={"definition": json.loads(BAD)})
         assert bad.status_code == 422 and bad.json()["detail"]["errors"]
         ok = await c.post("/api/journeys", json={"definition": DEFAULT_JOURNEY, "source_prompt": "p"})
         assert ok.status_code == 200
         listed = (await c.get("/api/journeys")).json()
-        assert listed[0]["version"] == 1 and listed[0]["summary"] and listed[0]["source_prompt"] == "p"
+        assert listed[1]["version"] == 1 and listed[1]["summary"] and listed[1]["source_prompt"] == "p"
         app.state.llm = None
         assert (await c.post("/api/journeys/compile", json={"prompt": "x"})).status_code == 503
         app.state.llm = scripted(GOOD)

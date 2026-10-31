@@ -16,6 +16,7 @@ from app.core.db import db
 from app.journeys.service import save_journey
 from app.main import app
 from tests.journey_fixtures import sample
+from tests.conftest import sign_in
 from tests.test_engine import H
 
 
@@ -122,7 +123,7 @@ async def client():
 async def test_run_snapshot_then_stream_has_no_gap(bus, client, fresh_hub):
     h = H(bus)
     h.engine.channels["web_inbox"] = WebInbox(hub=fresh_hub)
-    _, v = await save_journey(sample())
+    _, v = await save_journey(sample(), merchant_id=await sign_in(client))
     rid = await h.engine.start_run(version_id=v, customer_id="c1", family_id="F1",
                                    time_scale=3600, context={"amount": "49.00"})
     snap = (await client.get(f"/api/runs/{rid}")).json()
@@ -139,7 +140,11 @@ async def test_run_snapshot_then_stream_has_no_gap(bus, client, fresh_hub):
 async def test_api_lists_runs_messages_and_rejects_bad_channels(bus, client, fresh_hub):
     h = H(bus)
     h.engine.channels["web_inbox"] = WebInbox(hub=fresh_hub)
-    _, v = await save_journey(sample())
+    merchant_id = await sign_in(client)
+    async with db.session() as s:
+        (await s.get(Customer, "c1")).merchant_id = merchant_id
+        await s.commit()
+    _, v = await save_journey(sample(), merchant_id=merchant_id)
     await h.engine.start_run(version_id=v, customer_id="c1", family_id="F1", context={"amount": "49.00"})
     assert [r["family_id"] for r in (await client.get("/api/runs")).json()] == ["F1"]
     assert len((await client.get("/api/customers/c1/messages")).json()) == 1
@@ -159,7 +164,7 @@ async def test_stream_items_survive_the_real_sse_encoder(fresh_hub):
 async def test_api_timestamps_carry_a_utc_offset(bus, client):
     """Regression: naive timestamps rendered hours off in the browser."""
     h = H(bus)
-    _, v = await save_journey(sample())
+    _, v = await save_journey(sample(), merchant_id=await sign_in(client))
     rid = await h.engine.start_run(version_id=v, customer_id="c1", family_id="F1", context={"amount": "49.00"})
     snap = (await client.get(f"/api/runs/{rid}")).json()
     for ts in [snap["started_at"], snap["timeline"][0]["ts"]]:
