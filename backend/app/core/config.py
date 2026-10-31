@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     cartesia_api_key: str = ""
 
     public_base_url: str = "http://localhost:8000"
+    dashboard_url: str = "http://localhost:3000"   # links in outbound notifications point here
+    outbound_webhook_url: str = ""     # e.g. a Zapier "Catch Hook" URL; empty = off
     time_scale: float = 1.0
     abandon_after_seconds: float = 900.0  # real time; set 90 for the demo
     kill_switch: bool = False

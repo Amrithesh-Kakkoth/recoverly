@@ -42,6 +42,17 @@ webhooks and recovers runs whose live call was cut off by the restart.
 `make test` runs the suite on in-memory SQLite; `make test-pg` runs the same suite on
 `recoverly_test`.
 
+### Integrations
+
+- **Zapier (or any webhook):** set `OUTBOUND_WEBHOOK_URL` to a Zapier "Catch Hook" URL. When a recovery run ends the backend POSTs
+  `{event: recovery.recovered | recovery.lost, run_id, customer_name, amount, currency, text, run_url}` (never the phone number), so a Zap
+  can post "Recovered USD 49.00 from Asha" to Slack, a sheet or email. `POST /api/integrations/webhook/test` sends a sample so the Zap
+  can learn the fields. Failures are retried briefly and never affect recovery.
+- **Postman:** import `docs/postman/recoverly.postman_collection.json` and `recoverly-local.postman_environment.json`. It covers the
+  storefront, runs, calls, metrics, journeys, integrations and the PayPal sandbox calls (OAuth, create, get, capture), with tests; put
+  your sandbox client id and secret in the environment (kept out of git).
+- **AG Grid:** the dashboard's runs table (sorting, per-column filters, quick search) is AG Grid Community.
+
 ### Real phone calls (Twilio)
 
 By default the call rings in the browser. To ring a real handset instead:

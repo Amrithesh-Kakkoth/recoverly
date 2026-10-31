@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.calls import router as calls_router
 from app.api.demo import router as demo_router
 from app.api.router import router as api_router
+from app.api.integrations import router as integrations_router
 from app.api.journeys import router as journeys_router
 from app.api.metrics import router as metrics_router
 from app.api.runs import router as runs_router
@@ -18,6 +19,7 @@ from app.core.config import REPO_ROOT, settings
 from app.channels.web_inbox import WebInbox
 from app.core.db import db
 from app.detector.service import AbandonDetector
+from app.integrations.webhook_out import RecoveryNotifier
 from app.journeys.compiler import openai_llm
 from app.journeys.default import ensure_default_journey
 from app.journeys.engine import JourneyEngine
@@ -68,7 +70,11 @@ async def lifespan(_: FastAPI):
     detector = AbandonDetector()
     detector_task = asyncio.create_task(detector.run())
     await reprocess_pending()
+    notifier_task = (asyncio.create_task(RecoveryNotifier().run())
+                     if settings.outbound_webhook_url else None)
     yield
+    if notifier_task:
+        notifier_task.cancel()
     timers.stop()
     detector.stop()
     await asyncio.gather(loop_task, detector_task)
@@ -80,6 +86,7 @@ app.include_router(shop_router)
 app.include_router(runs_router)
 app.include_router(metrics_router)
 app.include_router(journeys_router)
+app.include_router(integrations_router)
 app.include_router(calls_router)
 app.include_router(demo_router)
 app.include_router(twilio_router)
